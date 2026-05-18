@@ -1,0 +1,43 @@
+<Project Sdk="Microsoft.NET.Sdk">
+<!-- General information about the task -->
+    <PropertyGroup>
+        <!--- The name and description of the task -->
+        <PackageId>Frends.HIT.TaskTemplate</PackageId>
+        <Description>A template for tasks for the Frends Integration Platform</Description>
+        
+        <!--- The version of the task. Can remain at 0.0.1, we specify this manually in the build process -->
+        <Version>1.0.1</Version>
+        
+        <!-- The name of the author -->
+        <authors>Höglandets IT</authors>
+        
+        <!-- The version control system and url -->
+        <RepositoryType>git</RepositoryType>
+        <RepositoryUrl>https://github.com/Hoglandets-IT/Frends.HIT.TaskTemplate</RepositoryUrl>
+        <PackageProjectUrl>https://github.com/Hoglandets-IT/Frends.HIT.TaskTemplate</PackageProjectUrl>
+        
+        <!-- The .NET framework settings -->
+        <TargetFramework>net6.0</TargetFramework>
+        <GenerateDocumentationFile>true</GenerateDocumentationFile>
+        <IncludeSource>True</IncludeSource>
+        <PackageTags>Frends</PackageTags>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+        
+        <!-- The copyright notice and licenses-->
+        <copyright>Copyright © 2022- Höglandets IT</copyright>
+        <PackageLicenseExpression>AGPL-3.0-or-later</PackageLicenseExpression>
+    </PropertyGroup>
+    
+    <!-- The required .NET packages to run this task -->
+    <ItemGroup>
+        <PackageReference Include="System.ComponentModel.Annotations" Version="4.5.0" />
+    </ItemGroup>
+        
+    <!-- Specify that the FrendsTaskMetadata.json file is included in the package -->
+    <ItemGroup>
+        <None Include="FrendsTaskMetadata.json" Pack="true" PackagePath="/">
+            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        </None>
+    </ItemGroup>
+</Project>

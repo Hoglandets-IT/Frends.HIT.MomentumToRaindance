@@ -1,0 +1,26 @@
+on:
+  push:
+    paths: ['Frends.HIT.TaskTemplate/**', '.github/workflows/on-push-pullreq.yml']
+    branches: ['main']
+  pull_request:
+    paths: ['Frends.HIT.TaskTemplate/**', '.github/workflows/on-push-pullreq.yml']
+    branches: ['main']
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+    - name: Build and publish
+      uses: hoglandets-it/gha-dotnet-builder@main
+      with:
+        buildShell: bash
+        buildVersion: VERSION
+        incrementVersion: patch
+        incrementVersionWriteback: "true"
+        writebackName: "AutoPush"
+        writebackEmail: "developer@hoglan.dev"
+        buildConfiguration: "Release"
+        includeSource: "true"
+        packageFeedUrl: ${{ secrets.FRENDS_NUGET_FEED_URL }}
+        packageFeedSecret: ${{ secrets.FRENDS_NUGET_FEED_KEY }}
