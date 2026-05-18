@@ -1,0 +1,26 @@
+on:
+  push:
+    branches: ['release-**']
+  pull_request:
+    branches: ['release-**']
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+    - name: Build and publish
+      uses: hoglandets-it/gha-dotnet-builder@main
+      with:
+        buildShell: bash
+        buildVersion: ${{ github.ref_name }}
+        incrementVersion: "false"
+        incrementVersionWriteback: "false"
+        buildConfiguration: "Release"
+        includeSource: "true"
+        packageRelease: "true"
+        packageReleaseName: ${{ github.ref_name }}
+        packageReleaseBody: "README.md"
+        packageReleaseFiles: |
+          ${{ github.event.repository.name }}.*.nupkg
+          README.md
