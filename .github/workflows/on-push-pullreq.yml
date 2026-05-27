@@ -1,9 +1,9 @@
 on:
   push:
-    paths: ['Frends.HIT.TaskTemplate/**', '.github/workflows/on-push-pullreq.yml']
+    paths: ['Frends.HIT.MomentumToRaindance/**', '.github/workflows/on-push-pullreq.yml']
     branches: ['main']
   pull_request:
-    paths: ['Frends.HIT.TaskTemplate/**', '.github/workflows/on-push-pullreq.yml']
+    paths: ['Frends.HIT.MomentumToRaindance/**', '.github/workflows/on-push-pullreq.yml']
     branches: ['main']
 
 jobs:
