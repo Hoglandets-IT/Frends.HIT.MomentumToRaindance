@@ -1,0 +1,156 @@
+query LedgerNoteAccountingsSync {
+  ledgerNoteAccountingsSync(lastLocalId: __LAST_LOCAL_ID__) {
+    nodes {
+      id
+      localId
+      changeType {
+        id
+        displayName
+      }
+      distributions {
+        bankCode {
+          bankCode
+          displayName
+        }
+        identityOfficialNumber
+        globalLocationNumber
+        ordererReference1
+        ordererReference2
+        address {
+          attention
+          careOf
+          streetAddress1
+          streetAddress2
+          country {
+            displayName
+            shortDisplayName
+          }
+          address
+          postCode
+          city
+        }
+        postalAddress {
+          attention
+          careOf
+          streetAddress1
+          streetAddress2
+          country {
+            displayName
+            shortDisplayName
+          }
+          address
+          postCode
+          city
+        }
+        type {
+          displayName
+        }
+      }
+      company {
+        displayName
+        organisationNumber
+        ledgerNoteHeader
+        ledgerNoteMessage
+        actor {
+          vatRegistrationNumber
+          postalAddress
+          postalAddressPostCode
+          postalAddressCity
+        }
+      }
+      ledgerNote {
+        type {
+          displayName
+        }
+        invoice {
+          number
+          creditInvoice {
+            number
+            ledgerPrimary {
+              ledgerNotes {
+                ledgerNote {
+                  id
+                  number
+                  toPay
+                }
+              }
+            }
+          }
+        }
+        id
+        refersToPeriodDisplayName
+        number
+        referenceNumber
+        payToTypeDisplayName
+        payToNumber
+        due
+        toPay
+        contract {
+          id
+          number
+        }
+        customer {
+          nodeClass {
+            displayName
+            id
+          }
+          identityOfficialNumber
+          number
+          displayName
+        }
+      }
+      ledgers {
+        id
+        changeType {
+          id
+          displayName
+        }
+        ledger {
+          type {
+            id
+          }
+          statusStart
+          statusEnd
+          object {
+            number
+            displayName
+          }
+        }
+        rows {
+          id
+          changeType {
+            id
+            displayName
+          }
+          ledgerRow {
+            id
+            text {
+              text
+              textDetailed
+            }
+            pricing {
+              messages {
+                text
+                statusStart
+                statusEnd
+              }
+              id
+            }
+            vatAmount
+            netAmount
+            vatType {
+              id
+              displayName
+            }
+          }
+          records {
+            accountingDate
+            debit
+            amount
+            accountDistributionCoding
+          }
+        }
+      }
+    }
+  }
+}
