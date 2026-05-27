@@ -1,26 +1,35 @@
 on:
-  push:
-    branches: ['release-**']
-  pull_request:
-    branches: ['release-**']
+  release:
+    types: [published]
 
 jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-    - name: Build and publish
-      uses: hoglandets-it/gha-dotnet-builder@main
-      with:
-        buildShell: bash
-        buildVersion: ${{ github.ref_name }}
-        incrementVersion: "false"
-        incrementVersionWriteback: "false"
-        buildConfiguration: "Release"
-        includeSource: "true"
-        packageRelease: "true"
-        packageReleaseName: ${{ github.ref_name }}
-        packageReleaseBody: "README.md"
-        packageReleaseFiles: |
-          ${{ github.event.repository.name }}.*.nupkg
-          README.md
+      - name: Checkout
+        uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v1
+        with:
+          dotnet-version: 8.x
+
+      - name: Build and Pack
+        run: |
+          dotnet restore ${{ github.event.repository.name }}/${{ github.event.repository.name }}.csproj
+          dotnet build --configuration Release ${{ github.event.repository.name }}/${{ github.event.repository.name }}.csproj /p:Version=$GITHUB_REF_NAME
+          dotnet pack --configuration Release ${{ github.event.repository.name }}/${{ github.event.repository.name }}.csproj --include-source /p:Version=$GITHUB_REF_NAME
+          dotnet nuget add source --name hit-registry --store-password-in-clear-text --username ${{ secrets.FRENDS_NUGET_V2_FEED_USER }} --password "${{ secrets.FRENDS_NUGET_V2_FEED_KEY }}" ${{ secrets.FRENDS_NUGET_V2_FEED_URL }}
+          dotnet nuget push --source hit-registry ${{ github.event.repository.name }}/bin/Release/${{ github.event.repository.name }}.*.nupkg --skip-duplicate
+
+      - name: Upload binaries to release
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: ${{ github.event.repository.name }}/bin/Release/*.nupkg
+          file_glob: true
+          tag: ${{ github.ref }}
+          overwrite: true
