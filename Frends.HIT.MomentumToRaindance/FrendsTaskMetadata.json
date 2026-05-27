@@ -1,0 +1,10 @@
+﻿{
+    "Tasks": [
+      {
+        "TaskMethod": "Frends.HIT.MomentumToRaindance.Main.FetchAndConvertLedgerNoteAccountings"
+      },
+      {
+        "TaskMethod": "Frends.HIT.MomentumToRaindance.Main.ConvertGraphQlResult"
+      }
+    ]
+}

@@ -1,6 +1,6 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Frends.HIT.TaskTemplate", "Frends.HIT.TaskTemplate\Frends.HIT.TaskTemplate.csproj", "{5C7C6D33-92A5-4C4A-BE3F-947B3D890188}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Frends.HIT.MomentumToRaindance", "Frends.HIT.MomentumToRaindance\Frends.HIT.MomentumToRaindance.csproj", "{5C7C6D33-92A5-4C4A-BE3F-947B3D890188}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

@@ -1,7 +1,0 @@
-﻿{
-    "Tasks": [
-      {
-        "TaskMethod": "Frends.HIT.TaskTemplate.Main.DoSomething"
-      }
-    ]
-}
