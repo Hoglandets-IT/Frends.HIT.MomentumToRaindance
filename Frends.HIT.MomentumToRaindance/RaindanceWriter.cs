@@ -32,9 +32,9 @@ internal static class RaindanceWriter
 
                     builder.Append(BuildInvoiceRowRecord(row)).Append("\r\n");
 
-                    foreach (var record in row.Records ?? [])
+                    foreach (var grouped in GroupRevenueRecords(row.Records))
                     {
-                        builder.Append(BuildAccountingRecord(node, row, record)).Append("\r\n");
+                        builder.Append(BuildAccountingRecord(node, row, grouped)).Append("\r\n");
                     }
                 }
             }
@@ -98,11 +98,11 @@ internal static class RaindanceWriter
     private static string BuildAccountingRecord(
         LedgerNoteAccountingNode node,
         LedgerRowEntry row,
-        AccountingRecord accountingRecord)
+        GroupedAccounting grouped)
     {
-        var dimensions = AccountDimensions.Parse(accountingRecord.AccountDistributionCoding);
-        var amount = accountingRecord.Amount;
-        var isCredit = accountingRecord.Debit == false;
+        var dimensions = AccountDimensions.Parse(grouped.Coding);
+        var amount = grouped.SignedAmount;
+        var isCredit = amount < 0;
         var record = new FixedWidthRecord(184);
 
         record.Put(1, 1, "K");
@@ -129,11 +129,63 @@ internal static class RaindanceWriter
         FirstNonEmpty(row.LedgerRow?.Text?.TextDetailed, row.LedgerRow?.Text?.Text)
             ?.Contains("Öresavrundning", StringComparison.OrdinalIgnoreCase) == true;
 
+    private static bool IsRevenueAccount(AccountingRecord record)
+    {
+        var konto = AccountDimensions.Parse(record.AccountDistributionCoding).Konto;
+        return !string.IsNullOrWhiteSpace(konto) && konto!.StartsWith("3", StringComparison.Ordinal);
+    }
+
+    private static IEnumerable<GroupedAccounting> GroupRevenueRecords(IReadOnlyList<AccountingRecord>? records)
+    {
+        if (records is null)
+        {
+            yield break;
+        }
+
+        var groups = new Dictionary<string, decimal>(StringComparer.Ordinal);
+        var order = new List<string>();
+
+        foreach (var record in records)
+        {
+            if (!IsRevenueAccount(record))
+            {
+                continue;
+            }
+
+            var key = record.AccountDistributionCoding ?? string.Empty;
+            var signed = (record.Amount ?? 0m) * (record.Debit == true ? 1m : -1m);
+
+            if (groups.TryGetValue(key, out var existing))
+            {
+                groups[key] = existing + signed;
+            }
+            else
+            {
+                groups[key] = signed;
+                order.Add(key);
+            }
+        }
+
+        foreach (var key in order)
+        {
+            var sum = groups[key];
+            if (sum == 0m)
+            {
+                continue;
+            }
+
+            yield return new GroupedAccounting(key, sum);
+        }
+    }
+
+    private sealed record GroupedAccounting(string Coding, decimal SignedAmount);
+
     private static string? FirstMotpart(LedgerNoteAccountingNode node) =>
         node.Ledgers?
             .SelectMany(ledger => ledger.Rows ?? [])
             .Where(row => !IsRoundingRow(row))
             .SelectMany(row => row.Records ?? [])
+            .Where(IsRevenueAccount)
             .Select(record => AccountDimensions.Parse(record.AccountDistributionCoding).Motpart)
             .FirstOrDefault(value => !string.IsNullOrWhiteSpace(value));
 
