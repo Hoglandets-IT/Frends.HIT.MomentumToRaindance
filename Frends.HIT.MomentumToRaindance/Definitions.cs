@@ -76,14 +76,6 @@ public class MomentumConnection
     public string GraphQlUrl { get; set; } = "";
 
     /// <summary>
-    /// Authentication method.
-    /// </summary>
-    [DisplayFormat(DataFormatString = "Text")]
-    [UIHint(nameof(ConfigurationSource), "", MomentumConfigurationSource.Manual)]
-    [DefaultValue("password")]
-    public string AuthMethod { get; set; } = "password";
-
-    /// <summary>
     /// Momentum API identifier.
     /// </summary>
     [DisplayFormat(DataFormatString = "Text")]
@@ -99,13 +91,6 @@ public class MomentumConnection
     [UIHint(nameof(ConfigurationSource), "", MomentumConfigurationSource.Manual)]
     [Display(Name = "Password/API Key")]
     public string Password { get; set; } = "";
-
-    /// <summary>
-    /// Whether to request a refresh token from Momentum.
-    /// </summary>
-    [UIHint(nameof(ConfigurationSource), "", MomentumConfigurationSource.Manual)]
-    [DefaultValue(true)]
-    public bool RequestRefreshToken { get; set; } = true;
 
     /// <summary>
     /// Resolve the selected input source into a Momentum API configuration.
@@ -137,9 +122,7 @@ public class MomentumConnection
             AuthUrl = AuthUrl,
             GraphQlUrl = GraphQlUrl,
             Username = Username,
-            Password = Password,
-            AuthMethod = AuthMethod,
-            RequestRefreshToken = RequestRefreshToken
+            Password = Password
         };
     }
 }
@@ -173,17 +156,6 @@ public class MomentumApiConfiguration
     [JsonPropertyName("password")]
     public string Password { get; set; } = "";
 
-    /// <summary>
-    /// Authentication method.
-    /// </summary>
-    [JsonPropertyName("method")]
-    public string AuthMethod { get; set; } = "password";
-
-    /// <summary>
-    /// Whether to request a refresh token.
-    /// </summary>
-    [JsonPropertyName("requestrefreshtoken")]
-    public bool RequestRefreshToken { get; set; } = true;
 }
 
 /// <summary>
@@ -211,7 +183,41 @@ public class ConvertInput
 }
 
 /// <summary>
-/// Output from Momentum to Raindance conversion.
+/// Output from fetching Momentum GraphQL data.
+/// </summary>
+public class FetchResult
+{
+    /// <summary>
+    /// Whether the conversion succeeded.
+    /// </summary>
+    public bool Success { get; set; }
+
+    /// <summary>
+    /// Raw Momentum GraphQL response bytes encoded as UTF-8.
+    /// </summary>
+    public byte[] ResultFile { get; set; }
+
+    /// <summary>
+    /// Informational message.
+    /// </summary>
+    public string Info { get; set; }
+
+    /// <summary>
+    /// Creates a fetch result.
+    /// </summary>
+    /// <param name="success">Whether the fetch succeeded.</param>
+    /// <param name="resultFile">Raw Momentum GraphQL response bytes encoded as UTF-8.</param>
+    /// <param name="info">Informational message.</param>
+    public FetchResult(bool success, byte[] resultFile, string info)
+    {
+        Success = success;
+        ResultFile = resultFile;
+        Info = info;
+    }
+}
+
+/// <summary>
+/// Output from converting a Momentum GraphQL response to Raindance.
 /// </summary>
 public class ConversionResult
 {
@@ -228,12 +234,7 @@ public class ConversionResult
     /// <summary>
     /// Raindance fixed-width file bytes encoded as ISO-8859-1/Latin-1.
     /// </summary>
-    public byte[] RaindanceFile { get; set; }
-
-    /// <summary>
-    /// Raw Momentum GraphQL response bytes encoded as UTF-8. Empty when converting from an existing response.
-    /// </summary>
-    public byte[] GraphQlResultFile { get; set; }
+    public byte[] ResultFile { get; set; }
 
     /// <summary>
     /// Informational message.
@@ -245,15 +246,13 @@ public class ConversionResult
     /// </summary>
     /// <param name="success">Whether the conversion succeeded.</param>
     /// <param name="nodeCount">Number of Momentum ledger note accounting nodes in the response.</param>
-    /// <param name="raindanceFile">Raindance fixed-width file bytes encoded as ISO-8859-1/Latin-1.</param>
-    /// <param name="graphQlResultFile">Raw Momentum GraphQL response bytes encoded as UTF-8.</param>
+    /// <param name="resultFile">Raindance fixed-width file bytes encoded as ISO-8859-1/Latin-1.</param>
     /// <param name="info">Informational message.</param>
-    public ConversionResult(bool success, int nodeCount, byte[] raindanceFile, byte[] graphQlResultFile, string info)
+    public ConversionResult(bool success, int nodeCount, byte[] resultFile, string info)
     {
         Success = success;
         NodeCount = nodeCount;
-        RaindanceFile = raindanceFile;
-        GraphQlResultFile = graphQlResultFile;
+        ResultFile = resultFile;
         Info = info;
     }
 }

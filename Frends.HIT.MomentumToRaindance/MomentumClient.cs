@@ -43,10 +43,10 @@ internal sealed class MomentumClient
     private async Task<string> AuthenticateAsync(HttpClient httpClient)
     {
         var authRequest = new AuthRequest(
-            Required(_configuration.AuthMethod, nameof(_configuration.AuthMethod)),
+            "password",
             Required(_configuration.Username, nameof(_configuration.Username)),
             Required(_configuration.Password, nameof(_configuration.Password)),
-            _configuration.RequestRefreshToken);
+            true);
 
         using var message = new HttpRequestMessage(HttpMethod.Post, RequiredUri(_configuration.AuthUrl, nameof(_configuration.AuthUrl)))
         {

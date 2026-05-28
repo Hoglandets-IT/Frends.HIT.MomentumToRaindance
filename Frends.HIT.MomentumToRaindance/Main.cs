@@ -9,7 +9,7 @@ using System.Text.Json.Serialization;
 namespace Frends.HIT.MomentumToRaindance;
 
 /// <summary>
-/// Frends task methods for converting Momentum ledger note accountings to Raindance import files.
+/// Frends task methods for fetching Momentum ledger note accountings and converting them to Raindance import files.
 /// </summary>
 [DisplayName("MomentumToRaindance")]
 public class Main
@@ -17,28 +17,24 @@ public class Main
     private static readonly JsonSerializerOptions JsonOptions = CreateJsonOptions();
 
     /// <summary>
-    /// Fetch ledger note accountings from Momentum GraphQL and convert them to a Raindance fixed-width byte stream.
+    /// Fetch ledger note accountings from Momentum GraphQL.
     /// </summary>
     /// <param name="connection">Momentum API connection settings.</param>
     /// <param name="input">Fetch options.</param>
-    /// <returns>Raindance file bytes and raw GraphQL response bytes.</returns>
-    [DisplayName("Fetch and Convert Ledger Note Accountings")]
-    public static async Task<ConversionResult> FetchAndConvertLedgerNoteAccountings(
+    /// <returns>Raw GraphQL response bytes.</returns>
+    [DisplayName("Fetch Ledger Note Accountings")]
+    public static async Task<FetchResult> FetchLedgerNoteAccountings(
         [PropertyTab] MomentumConnection connection,
         [PropertyTab] FetchInput input)
     {
         var client = new MomentumClient(connection, JsonOptions);
         var graphQlPayload = await client.FetchLedgerNoteAccountingsSyncAsync(input.LastLocalId);
-        var result = DeserializeGraphQlResult(graphQlPayload);
-        var raindanceBytes = RaindanceWriter.ToBytes(result);
         var graphQlBytes = Encoding.UTF8.GetBytes(PrettyPrintJson(graphQlPayload));
 
-        return new ConversionResult(
+        return new FetchResult(
             success: true,
-            nodeCount: NodeCount(result),
-            raindanceFile: raindanceBytes,
-            graphQlResultFile: graphQlBytes,
-            info: "Momentum response converted to Raindance.");
+            resultFile: graphQlBytes,
+            info: "Momentum GraphQL response fetched.");
     }
 
     /// <summary>
@@ -56,8 +52,7 @@ public class Main
         return new ConversionResult(
             success: true,
             nodeCount: NodeCount(result),
-            raindanceFile: raindanceBytes,
-            graphQlResultFile: [],
+            resultFile: raindanceBytes,
             info: "GraphQL response converted to Raindance.");
     }
 

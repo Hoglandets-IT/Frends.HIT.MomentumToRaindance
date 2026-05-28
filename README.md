@@ -4,15 +4,13 @@ Frends task package for fetching Momentum ledger note accountings and converting
 
 ## Tasks
 
-### Fetch and Convert Ledger Note Accountings
+### Fetch Ledger Note Accountings
 
-`Frends.HIT.MomentumToRaindance.Main.FetchAndConvertLedgerNoteAccountings`
+`Frends.HIT.MomentumToRaindance.Main.FetchLedgerNoteAccountings`
 
 Calls Momentum auth and GraphQL endpoints, then returns:
 
-- `RaindanceFile`: ISO-8859-1/Latin-1 encoded fixed-width Raindance bytes.
-- `GraphQlResultFile`: UTF-8 encoded, pretty-printed raw GraphQL JSON bytes.
-- `NodeCount`: number of Momentum nodes converted.
+- `ResultFile`: UTF-8 encoded, pretty-printed raw GraphQL JSON bytes.
 
 Connection settings can be supplied in the same style as `RemoteFS`:
 
@@ -27,9 +25,7 @@ Valid JSON configuration:
   "authurl": "https://example.invalid/momentum/auth",
   "graphqlurl": "https://example.invalid/momentum/graphql",
   "username": "momentum-username",
-  "password": "Momentum API key",
-  "method": "password",
-  "requestrefreshtoken": true
+  "password": "Momentum API key"
 }
 ```
 
@@ -41,7 +37,7 @@ For `Hashicorp Vault`, the secret value must contain the same JSON object. The t
 
 Accepts a UTF-8 byte stream containing a Momentum GraphQL JSON response and returns:
 
-- `RaindanceFile`: ISO-8859-1/Latin-1 encoded fixed-width Raindance bytes.
+- `ResultFile`: ISO-8859-1/Latin-1 encoded fixed-width Raindance bytes.
 - `NodeCount`: number of Momentum nodes converted.
 
 ## Build
