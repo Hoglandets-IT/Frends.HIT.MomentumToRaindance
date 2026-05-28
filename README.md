@@ -14,6 +14,27 @@ Calls Momentum auth and GraphQL endpoints, then returns:
 - `GraphQlResultFile`: UTF-8 encoded, pretty-printed raw GraphQL JSON bytes.
 - `NodeCount`: number of Momentum nodes converted.
 
+Connection settings can be supplied in the same style as `RemoteFS`:
+
+- `JSON String`: paste a JSON configuration into `JsonConfiguration`.
+- `Hashicorp Vault`: provide `VaultPath`; the task reads the secret using the Infisical environment variables.
+- `Manual Config`: enter the fields directly in Frends.
+
+Valid JSON configuration:
+
+```json
+{
+  "authurl": "https://example.invalid/momentum/auth",
+  "graphqlurl": "https://example.invalid/momentum/graphql",
+  "username": "momentum-username",
+  "password": "Momentum API key",
+  "method": "password",
+  "requestrefreshtoken": true
+}
+```
+
+For `Hashicorp Vault`, the secret value must contain the same JSON object. The task uses the same Infisical environment variables as `RemoteFS`: `INFISICAL_ADDR`, `INFISICAL_CLIENT_ID`, `INFISICAL_CLIENT_SECRET`, `INFISICAL_PROJECT`, and `INFISICAL_ENVIRONMENT`.
+
 ### Convert GraphQL Result
 
 `Frends.HIT.MomentumToRaindance.Main.ConvertGraphQlResult`

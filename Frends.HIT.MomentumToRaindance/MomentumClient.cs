@@ -7,12 +7,12 @@ namespace Frends.HIT.MomentumToRaindance;
 
 internal sealed class MomentumClient
 {
-    private readonly MomentumConnection _connection;
+    private readonly MomentumApiConfiguration _configuration;
     private readonly JsonSerializerOptions _jsonOptions;
 
     public MomentumClient(MomentumConnection connection, JsonSerializerOptions jsonOptions)
     {
-        _connection = connection;
+        _configuration = connection.GetMomentumConfiguration();
         _jsonOptions = jsonOptions;
     }
 
@@ -29,7 +29,7 @@ internal sealed class MomentumClient
             query,
             new Dictionary<string, object?>());
 
-        using var graphQlMessage = new HttpRequestMessage(HttpMethod.Post, RequiredUri(_connection.GraphQlUrl, nameof(_connection.GraphQlUrl)));
+        using var graphQlMessage = new HttpRequestMessage(HttpMethod.Post, RequiredUri(_configuration.GraphQlUrl, nameof(_configuration.GraphQlUrl)));
         graphQlMessage.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
         graphQlMessage.Content = JsonContent.Create(request, options: _jsonOptions);
 
@@ -43,12 +43,12 @@ internal sealed class MomentumClient
     private async Task<string> AuthenticateAsync(HttpClient httpClient)
     {
         var authRequest = new AuthRequest(
-            Required(_connection.AuthMethod, nameof(_connection.AuthMethod)),
-            Required(_connection.Identifier, nameof(_connection.Identifier)),
-            Required(_connection.Key, nameof(_connection.Key)),
-            _connection.RequestRefreshToken);
+            Required(_configuration.AuthMethod, nameof(_configuration.AuthMethod)),
+            Required(_configuration.Username, nameof(_configuration.Username)),
+            Required(_configuration.Password, nameof(_configuration.Password)),
+            _configuration.RequestRefreshToken);
 
-        using var message = new HttpRequestMessage(HttpMethod.Post, RequiredUri(_connection.AuthUrl, nameof(_connection.AuthUrl)))
+        using var message = new HttpRequestMessage(HttpMethod.Post, RequiredUri(_configuration.AuthUrl, nameof(_configuration.AuthUrl)))
         {
             Content = JsonContent.Create(authRequest, options: _jsonOptions)
         };
