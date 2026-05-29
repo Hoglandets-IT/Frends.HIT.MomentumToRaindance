@@ -29,11 +29,10 @@ public class Main
     {
         var client = new MomentumClient(connection, JsonOptions);
         var graphQlPayload = await client.FetchLedgerNoteAccountingsSyncAsync(input.LastLocalId);
-        var graphQlBytes = Encoding.UTF8.GetBytes(PrettyPrintJson(graphQlPayload));
 
         return new FetchResult(
             success: true,
-            resultFile: graphQlBytes,
+            resultFile: PrettyPrintJson(graphQlPayload),
             info: "Momentum GraphQL response fetched.");
     }
 
@@ -45,14 +44,13 @@ public class Main
     [DisplayName("Convert GraphQL Result")]
     public static ConversionResult ConvertGraphQlResult([PropertyTab] ConvertInput input)
     {
-        var payload = Encoding.UTF8.GetString(input.GraphQlResult);
-        var result = DeserializeGraphQlResult(payload);
-        var raindanceBytes = RaindanceWriter.ToBytes(result);
+        var result = DeserializeGraphQlResult(input.GraphQlResult);
+        var raindanceText = RaindanceWriter.ToText(result);
 
         return new ConversionResult(
             success: true,
             nodeCount: NodeCount(result),
-            resultFile: raindanceBytes,
+            resultFile: raindanceText,
             info: "GraphQL response converted to Raindance.");
     }
 

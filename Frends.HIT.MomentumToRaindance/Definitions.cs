@@ -176,10 +176,10 @@ public class FetchInput
 public class ConvertInput
 {
     /// <summary>
-    /// Raw Momentum GraphQL JSON response as bytes. UTF-8 is expected.
+    /// Raw Momentum GraphQL JSON response.
     /// </summary>
     [DisplayFormat(DataFormatString = "Text")]
-    public byte[] GraphQlResult { get; set; } = [];
+    public string GraphQlResult { get; set; } = "";
 }
 
 /// <summary>
@@ -193,9 +193,9 @@ public class FetchResult
     public bool Success { get; set; }
 
     /// <summary>
-    /// Raw Momentum GraphQL response bytes encoded as UTF-8.
+    /// Pretty-printed Momentum GraphQL JSON response.
     /// </summary>
-    public byte[] ResultFile { get; set; }
+    public string ResultFile { get; set; }
 
     /// <summary>
     /// Informational message.
@@ -206,9 +206,9 @@ public class FetchResult
     /// Creates a fetch result.
     /// </summary>
     /// <param name="success">Whether the fetch succeeded.</param>
-    /// <param name="resultFile">Raw Momentum GraphQL response bytes encoded as UTF-8.</param>
+    /// <param name="resultFile">Pretty-printed Momentum GraphQL JSON response.</param>
     /// <param name="info">Informational message.</param>
-    public FetchResult(bool success, byte[] resultFile, string info)
+    public FetchResult(bool success, string resultFile, string info)
     {
         Success = success;
         ResultFile = resultFile;
@@ -232,9 +232,9 @@ public class ConversionResult
     public int NodeCount { get; set; }
 
     /// <summary>
-    /// Raindance fixed-width file bytes encoded as ISO-8859-1/Latin-1.
+    /// Raindance fixed-width file content. Write to disk/SFTP using ISO-8859-1/Latin-1 encoding.
     /// </summary>
-    public byte[] ResultFile { get; set; }
+    public string ResultFile { get; set; }
 
     /// <summary>
     /// Informational message.
@@ -246,9 +246,9 @@ public class ConversionResult
     /// </summary>
     /// <param name="success">Whether the conversion succeeded.</param>
     /// <param name="nodeCount">Number of Momentum ledger note accounting nodes in the response.</param>
-    /// <param name="resultFile">Raindance fixed-width file bytes encoded as ISO-8859-1/Latin-1.</param>
+    /// <param name="resultFile">Raindance fixed-width file content. Persist using ISO-8859-1/Latin-1 encoding.</param>
     /// <param name="info">Informational message.</param>
-    public ConversionResult(bool success, int nodeCount, byte[] resultFile, string info)
+    public ConversionResult(bool success, int nodeCount, string resultFile, string info)
     {
         Success = success;
         NodeCount = nodeCount;

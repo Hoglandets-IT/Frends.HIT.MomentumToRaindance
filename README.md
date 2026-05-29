@@ -10,7 +10,7 @@ Frends task package for fetching Momentum ledger note accountings and converting
 
 Calls Momentum auth and GraphQL endpoints, then returns:
 
-- `ResultFile`: UTF-8 encoded, pretty-printed raw GraphQL JSON bytes.
+- `ResultsFile`: UTF-8 encoded, pretty-printed raw GraphQL JSON bytes.
 
 Connection settings can be supplied in the same style as `RemoteFS`:
 
@@ -37,7 +37,7 @@ For `Hashicorp Vault`, the secret value must contain the same JSON object. The t
 
 Accepts a UTF-8 byte stream containing a Momentum GraphQL JSON response and returns:
 
-- `ResultFile`: ISO-8859-1/Latin-1 encoded fixed-width Raindance bytes.
+- `ResultsFile`: ISO-8859-1/Latin-1 encoded fixed-width Raindance bytes.
 - `NodeCount`: number of Momentum nodes converted.
 
 ## Build
