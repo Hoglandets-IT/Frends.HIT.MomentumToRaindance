@@ -1,7 +1,6 @@
 using System.ComponentModel;
 using System.ComponentModel.DataAnnotations;
-using System.Text.Json;
-using System.Text.Json.Serialization;
+using Newtonsoft.Json;
 
 namespace Frends.HIT.MomentumToRaindance;
 
@@ -107,12 +106,7 @@ public class MomentumConnection
 
         if (json is not null)
         {
-            var configuration = JsonSerializer.Deserialize<MomentumApiConfiguration>(
-                json,
-                new JsonSerializerOptions
-                {
-                    PropertyNameCaseInsensitive = true
-                });
+            var configuration = JsonConvert.DeserializeObject<MomentumApiConfiguration>(json);
 
             return configuration ?? throw new InvalidOperationException("Momentum JSON configuration was empty.");
         }
@@ -135,25 +129,25 @@ public class MomentumApiConfiguration
     /// <summary>
     /// Momentum auth endpoint URL.
     /// </summary>
-    [JsonPropertyName("authurl")]
+    [JsonProperty("authurl")]
     public string AuthUrl { get; set; } = "";
 
     /// <summary>
     /// Momentum GraphQL endpoint URL.
     /// </summary>
-    [JsonPropertyName("graphqlurl")]
+    [JsonProperty("graphqlurl")]
     public string GraphQlUrl { get; set; } = "";
 
     /// <summary>
     /// Momentum username/identifier.
     /// </summary>
-    [JsonPropertyName("username")]
+    [JsonProperty("username")]
     public string Username { get; set; } = "";
 
     /// <summary>
     /// Momentum password/API key.
     /// </summary>
-    [JsonPropertyName("password")]
+    [JsonProperty("password")]
     public string Password { get; set; } = "";
 
 }

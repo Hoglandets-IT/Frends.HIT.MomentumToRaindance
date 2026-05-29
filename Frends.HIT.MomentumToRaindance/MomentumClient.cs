@@ -1,19 +1,18 @@
 using System.Net.Http.Headers;
-using System.Net.Http.Json;
-using System.Text.Json;
-using System.Text.Json.Serialization;
+using System.Text;
+using Newtonsoft.Json;
 
 namespace Frends.HIT.MomentumToRaindance;
 
 internal sealed class MomentumClient
 {
     private readonly MomentumApiConfiguration _configuration;
-    private readonly JsonSerializerOptions _jsonOptions;
+    private readonly JsonSerializerSettings _jsonSettings;
 
-    public MomentumClient(MomentumConnection connection, JsonSerializerOptions jsonOptions)
+    public MomentumClient(MomentumConnection connection, JsonSerializerSettings jsonSettings)
     {
         _configuration = connection.GetMomentumConfiguration();
-        _jsonOptions = jsonOptions;
+        _jsonSettings = jsonSettings;
     }
 
     public async Task<string> FetchLedgerNoteAccountingsSyncAsync(int lastLocalId)
@@ -31,7 +30,7 @@ internal sealed class MomentumClient
 
         using var graphQlMessage = new HttpRequestMessage(HttpMethod.Post, RequiredUri(_configuration.GraphQlUrl, nameof(_configuration.GraphQlUrl)));
         graphQlMessage.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
-        graphQlMessage.Content = JsonContent.Create(request, options: _jsonOptions);
+        graphQlMessage.Content = new StringContent(JsonConvert.SerializeObject(request), Encoding.UTF8, "application/json");
 
         using var graphQlResponse = await httpClient.SendAsync(graphQlMessage);
         var graphQlPayload = await graphQlResponse.Content.ReadAsStringAsync();
@@ -50,7 +49,7 @@ internal sealed class MomentumClient
 
         using var message = new HttpRequestMessage(HttpMethod.Post, RequiredUri(_configuration.AuthUrl, nameof(_configuration.AuthUrl)))
         {
-            Content = JsonContent.Create(authRequest, options: _jsonOptions)
+            Content = new StringContent(JsonConvert.SerializeObject(authRequest), Encoding.UTF8, "application/json")
         };
         message.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
@@ -61,7 +60,7 @@ internal sealed class MomentumClient
         AuthResponse authResponse;
         try
         {
-            authResponse = JsonSerializer.Deserialize<AuthResponse>(payload, _jsonOptions)
+            authResponse = JsonConvert.DeserializeObject<AuthResponse>(payload, _jsonSettings)
                 ?? throw new InvalidOperationException("Auth response was empty.");
         }
         catch (JsonException exception)
@@ -85,14 +84,14 @@ internal sealed class MomentumClient
 }
 
 internal sealed record AuthRequest(
-    [property: JsonPropertyName("method")] string Method,
-    [property: JsonPropertyName("identifier")] string Identifier,
-    [property: JsonPropertyName("key")] string Key,
-    [property: JsonPropertyName("requestrefreshtoken")] bool RequestRefreshToken);
+    [property: JsonProperty("method")] string Method,
+    [property: JsonProperty("identifier")] string Identifier,
+    [property: JsonProperty("key")] string Key,
+    [property: JsonProperty("requestrefreshtoken")] bool RequestRefreshToken);
 
 internal sealed record AuthResponse(
-    [property: JsonPropertyName("completed")] AuthCompleted? Completed);
+    [property: JsonProperty("completed")] AuthCompleted? Completed);
 
 internal sealed record AuthCompleted(
-    [property: JsonPropertyName("accessToken")] string? AccessToken,
-    [property: JsonPropertyName("expiresInSeconds")] int? ExpiresInSeconds);
+    [property: JsonProperty("accessToken")] string? AccessToken,
+    [property: JsonProperty("expiresInSeconds")] int? ExpiresInSeconds);

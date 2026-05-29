@@ -1,20 +1,19 @@
 using System.Net;
 using System.Security.Authentication;
 using System.Text;
-using System.Text.Json;
-using System.Text.Json.Serialization;
+using Newtonsoft.Json;
 
 namespace Frends.HIT.MomentumToRaindance;
 
 internal sealed class SecretType
 {
-    [JsonPropertyName("secretValue")]
+    [JsonProperty("secretValue")]
     public string SecretValue { get; set; } = "";
 }
 
 internal sealed class SecretResponse
 {
-    [JsonPropertyName("secret")]
+    [JsonProperty("secret")]
     public SecretType Secret { get; set; } = new();
 }
 
@@ -36,10 +35,10 @@ internal static class Helpers
         };
 
         using var client = new HttpClient(handler);
-        using var loginResponse = client.PostAsync(
-            $"{infisicalAddr}/api/v1/auth/universal-auth/login",
+        var response = client.PostAsync(
+            infisicalAddr + "/api/v1/auth/universal-auth/login",
             new StringContent(
-                JsonSerializer.Serialize(new
+                JsonConvert.SerializeObject(new
                 {
                     clientId = infisicalClientId,
                     clientSecret = infisicalClientSecret
@@ -47,52 +46,42 @@ internal static class Helpers
                 Encoding.UTF8,
                 "application/json")).Result;
 
-        if (!loginResponse.IsSuccessStatusCode)
+        if (!response.IsSuccessStatusCode)
         {
-            throw new InvalidOperationException("Failed to authenticate to Infisical: " + loginResponse.ReasonPhrase);
+            throw new InvalidOperationException("Failed to authenticate to Infisical: " + response.ReasonPhrase);
         }
 
-        var loginPayload = loginResponse.Content.ReadAsStringAsync().Result;
-        var token = JsonSerializer.Deserialize<Dictionary<string, string>>(loginPayload)?["accessToken"]
+        var token = JsonConvert.DeserializeObject<Dictionary<string, string>>(response.Content.ReadAsStringAsync().Result)?["accessToken"]
             ?? throw new InvalidOperationException("Infisical login response did not include accessToken.");
 
-        var items = path.Split('/', StringSplitOptions.RemoveEmptyEntries);
-        if (items.Length == 0)
-        {
-            throw new InvalidOperationException("Vault path must include a secret name.");
-        }
-
+        var items = path.Split('/');
         var secret = items[^1];
-        var secretPath = "/" + string.Join('/', items.Take(items.Length - 1));
+        var secretPath = string.Join('/', items.Take(items.Length - 1));
 
-        if (secretPath.Contains('.'))
+        if (!secretPath.StartsWith("/"))
         {
-            secretPath = secretPath.Replace(".", "_", StringComparison.Ordinal);
+            secretPath = "/" + secretPath;
         }
 
-        var fullAddress =
-            $"{infisicalAddr}/api/v3/secrets/raw/{WebUtility.UrlEncode(secret)}" +
-            $"?workspaceId={WebUtility.UrlEncode(infisicalProject)}" +
-            $"&secretPath={WebUtility.UrlEncode(secretPath)}" +
-            $"&environment={WebUtility.UrlEncode(infisicalEnvironment)}";
+        if (secretPath.Contains("."))
+        {
+            secretPath = secretPath.Replace(".", "_");
+        }
+
+        secretPath = System.Web.HttpUtility.UrlEncode(secretPath);
+        var fullAddress = infisicalAddr + "/api/v3/secrets/raw/" + secret + "?workspaceId=" + infisicalProject + "&secretPath=" + secretPath + "&environment=" + infisicalEnvironment;
 
         client.DefaultRequestHeaders.Add("Authorization", "Bearer " + token);
 
-        using var secretResponse = client.GetAsync(fullAddress).Result;
-        if (!secretResponse.IsSuccessStatusCode)
+        var request = client.GetAsync(fullAddress).Result;
+        if (!request.IsSuccessStatusCode)
         {
-            throw new InvalidOperationException("Failed to get secret from Infisical: " + secretResponse.ReasonPhrase);
+            throw new InvalidOperationException("Failed to get secret from Infisical: " + request.ReasonPhrase);
         }
 
-        var secretPayload = secretResponse.Content.ReadAsStringAsync().Result;
-        var parsedSecret = JsonSerializer.Deserialize<SecretResponse>(
-            secretPayload,
-            new JsonSerializerOptions
-            {
-                PropertyNameCaseInsensitive = true
-            });
+        var secretResponse = JsonConvert.DeserializeObject<SecretResponse>(request.Content.ReadAsStringAsync().Result);
 
-        return parsedSecret?.Secret.SecretValue
+        return secretResponse?.Secret.SecretValue
             ?? throw new InvalidOperationException("Infisical secret response did not include secret.secretValue.");
     }
 

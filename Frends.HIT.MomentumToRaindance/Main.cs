@@ -2,9 +2,7 @@ using System.ComponentModel;
 using System.ComponentModel.DataAnnotations;
 using System.Reflection;
 using System.Text;
-using System.Text.Encodings.Web;
-using System.Text.Json;
-using System.Text.Json.Serialization;
+using Newtonsoft.Json;
 
 namespace Frends.HIT.MomentumToRaindance;
 
@@ -14,7 +12,7 @@ namespace Frends.HIT.MomentumToRaindance;
 [DisplayName("MomentumToRaindance")]
 public class Main
 {
-    private static readonly JsonSerializerOptions JsonOptions = CreateJsonOptions();
+    private static readonly JsonSerializerSettings JsonSettings = CreateJsonSettings();
 
     /// <summary>
     /// Fetch ledger note accountings from Momentum GraphQL.
@@ -27,7 +25,7 @@ public class Main
         [PropertyTab] MomentumConnection connection,
         [PropertyTab] FetchInput input)
     {
-        var client = new MomentumClient(connection, JsonOptions);
+        var client = new MomentumClient(connection, JsonSettings);
         var graphQlPayload = await client.FetchLedgerNoteAccountingsSyncAsync(input.LastLocalId);
 
         return new FetchResult(
@@ -76,7 +74,7 @@ public class Main
 
     internal static GraphQlResponse<LedgerNoteAccountingsSyncData> DeserializeGraphQlResult(string payload)
     {
-        var result = JsonSerializer.Deserialize<GraphQlResponse<LedgerNoteAccountingsSyncData>>(payload, JsonOptions)
+        var result = JsonConvert.DeserializeObject<GraphQlResponse<LedgerNoteAccountingsSyncData>>(payload, JsonSettings)
             ?? throw new InvalidOperationException("GraphQL response was empty.");
 
         if (result.Errors is { Count: > 0 })
@@ -105,14 +103,12 @@ public class Main
             $"{operation} endpoint returned a non-JSON response. {BuildResponseDetails(response, payload)}");
     }
 
-    private static JsonSerializerOptions CreateJsonOptions()
+    private static JsonSerializerSettings CreateJsonSettings()
     {
-        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web)
+        return new JsonSerializerSettings
         {
-            PropertyNameCaseInsensitive = true
+            NullValueHandling = NullValueHandling.Ignore
         };
-        options.Converters.Add(new FlexibleStringConverter());
-        return options;
     }
 
     private static int NodeCount(GraphQlResponse<LedgerNoteAccountingsSyncData> result) =>
@@ -146,13 +142,6 @@ public class Main
 
     private static string PrettyPrintJson(string payload)
     {
-        using var document = JsonDocument.Parse(payload);
-        return JsonSerializer.Serialize(
-            document.RootElement,
-            new JsonSerializerOptions
-            {
-                Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-                WriteIndented = true
-            });
+        return JsonConvert.SerializeObject(JsonConvert.DeserializeObject(payload), Formatting.Indented);
     }
 }

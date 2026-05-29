@@ -1,49 +1,23 @@
-using System.Text.Json;
-using System.Text.Json.Serialization;
+using Newtonsoft.Json;
 
 namespace Frends.HIT.MomentumToRaindance;
 
-internal sealed class FlexibleStringConverter : JsonConverter<string?>
-{
-    public override string? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
-        reader.TokenType switch
-        {
-            JsonTokenType.Null => null,
-            JsonTokenType.String => reader.GetString(),
-            JsonTokenType.Number => reader.GetDecimal().ToString(System.Globalization.CultureInfo.InvariantCulture),
-            JsonTokenType.True => bool.TrueString,
-            JsonTokenType.False => bool.FalseString,
-            _ => throw new JsonException($"Cannot convert JSON token {reader.TokenType} to string.")
-        };
-
-    public override void Write(Utf8JsonWriter writer, string? value, JsonSerializerOptions options)
-    {
-        if (value is null)
-        {
-            writer.WriteNullValue();
-            return;
-        }
-
-        writer.WriteStringValue(value);
-    }
-}
-
 internal sealed record GraphQlRequest(
-    [property: JsonPropertyName("query")] string Query,
-    [property: JsonPropertyName("variables")] IReadOnlyDictionary<string, object?> Variables);
+    [property: JsonProperty("query")] string Query,
+    [property: JsonProperty("variables")] IReadOnlyDictionary<string, object?> Variables);
 
 internal sealed record GraphQlResponse<TData>(
-    [property: JsonPropertyName("data")] TData? Data,
-    [property: JsonPropertyName("errors")] IReadOnlyList<GraphQlError>? Errors);
+    [property: JsonProperty("data")] TData? Data,
+    [property: JsonProperty("errors")] IReadOnlyList<GraphQlError>? Errors);
 
 internal sealed record GraphQlError(
-    [property: JsonPropertyName("message")] string? Message);
+    [property: JsonProperty("message")] string? Message);
 
 internal sealed record LedgerNoteAccountingsSyncData(
-    [property: JsonPropertyName("ledgerNoteAccountingsSync")] LedgerNoteAccountingsSyncConnection? LedgerNoteAccountingsSync);
+    [property: JsonProperty("ledgerNoteAccountingsSync")] LedgerNoteAccountingsSyncConnection? LedgerNoteAccountingsSync);
 
 internal sealed record LedgerNoteAccountingsSyncConnection(
-    [property: JsonPropertyName("nodes")] IReadOnlyList<LedgerNoteAccountingNode> Nodes);
+    [property: JsonProperty("nodes")] IReadOnlyList<LedgerNoteAccountingNode> Nodes);
 
 internal sealed record LedgerNoteAccountingNode
 {
@@ -78,7 +52,7 @@ internal sealed record BankCode
 {
     public string? Code { get; init; }
 
-    [JsonPropertyName("bankCode")]
+    [JsonProperty("bankCode")]
     public string? Value
     {
         get => Code;
@@ -97,7 +71,7 @@ internal sealed record Address
     public Country? Country { get; init; }
     public string? AddressLine { get; init; }
 
-    [JsonPropertyName("address")]
+    [JsonProperty("address")]
     public string? AddressValue
     {
         get => AddressLine;

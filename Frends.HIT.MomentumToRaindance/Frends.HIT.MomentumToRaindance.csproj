@@ -31,6 +31,7 @@
     
     <!-- The required .NET packages to run this task -->
     <ItemGroup>
+        <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
         <PackageReference Include="System.ComponentModel.Annotations" Version="5.0.0" />
     </ItemGroup>
         
