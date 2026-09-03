@@ -348,3 +348,11 @@ MigrationBackup/
 
 # Ionide (cross platform F# VS Code tools) working folder
 .ionide/
+
+.env
+derp
+.DS_Store
+
+out/
+KR24.txt
+momentum.json

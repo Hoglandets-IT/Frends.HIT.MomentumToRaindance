@@ -47,6 +47,28 @@ dotnet build Frends.HIT.MomentumToRaindance.sln
 dotnet pack --configuration Release --include-source --output . Frends.HIT.MomentumToRaindance/Frends.HIT.MomentumToRaindance.csproj
 ```
 
+## Generate a file locally
+
+Put the Momentum JSON configuration in `.env`, then run:
+
+```bash
+./generate-raindance.sh ./out/raindance.txt
+```
+
+The wrapper fetches all nodes after local ID `0`, converts them with the task package, and writes the output using ISO-8859-1/Latin-1. To fetch only newer nodes:
+
+```bash
+./generate-raindance.sh ./out/raindance.txt --last-local-id 123
+```
+
+To save the exact prettified Momentum response used for the conversion as UTF-8 JSON:
+
+```bash
+./generate-raindance.sh ./out/raindance.txt --json-output ./out/momentum.json
+```
+
+Run `./generate-raindance.sh --help` for all options.
+
 The GraphQL query is embedded into the DLL as a resource; no query file has to be deployed beside the package.
 
 ## Output Notes
@@ -59,5 +81,7 @@ H invoice header
 R invoice row
 K accounting row
 ```
+
+The H-record invoice-number field at positions 200–209 is intentionally blank so Raindance assigns the invoice number. Each R-record row text ends with the same formatted periodisation used at K positions 175–184. When necessary, the original row text is shortened so the period remains visible within the 60-character field.
 
 The Raindance byte stream is ISO-8859-1/Latin-1 encoded. If the file is opened as UTF-8 in an editor, Swedish characters will appear broken even though the bytes are correct for the target format.

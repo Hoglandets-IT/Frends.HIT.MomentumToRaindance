@@ -30,7 +30,7 @@ internal static class RaindanceWriter
                         continue;
                     }
 
-                    builder.Append(BuildInvoiceRowRecord(row)).Append("\r\n");
+                    builder.Append(BuildInvoiceRowRecord(node, row)).Append("\r\n");
 
                     foreach (var grouped in GroupRevenueRecords(row.Records))
                     {
@@ -75,19 +75,22 @@ internal static class RaindanceWriter
         record.Put(1, 1, "H");
         record.Put(65, 30, FirstNonEmpty(distribution?.OrdererReference1, distribution?.OrdererReference2));
         record.Put(145, 12, DigitsOnly(customer?.IdentityOfficialNumber));
-        record.Put(200, 10, node.LedgerNote?.Number);
 
         return record.ToString();
     }
 
-    private static string BuildInvoiceRowRecord(LedgerRowEntry row)
+    private static string BuildInvoiceRowRecord(LedgerNoteAccountingNode node, LedgerRowEntry row)
     {
         var ledgerRow = row.LedgerRow;
         var amount = ledgerRow?.NetAmount;
+        var rowText = AppendWithinLength(
+            FirstNonEmpty(ledgerRow?.Text?.TextDetailed, ledgerRow?.Text?.Text),
+            Periodization(node.LedgerNote?.RefersToPeriodDisplayName),
+            60);
         var record = new FixedWidthRecord(105);
 
         record.Put(1, 1, "R");
-        record.Put(3, 60, FirstNonEmpty(ledgerRow?.Text?.TextDetailed, ledgerRow?.Text?.Text));
+        record.Put(3, 60, rowText);
         record.Put(63, 15, FormatAmount(amount), Align.Right);
         record.Put(78, 1, amount < 0 ? "-" : null);
         record.Put(79, 3, VatCode(ledgerRow?.VatType?.Id));
@@ -153,7 +156,10 @@ internal static class RaindanceWriter
             }
 
             var key = record.AccountDistributionCoding ?? string.Empty;
-            var signed = (record.Amount ?? 0m) * (record.Debit == true ? 1m : -1m);
+            // Momentum's accounting flag describes the journal-side posting, while this
+            // Raindance invoice layout expects the transaction polarity: ordinary revenue
+            // rows are debit/blank and negative adjustments are credit/'-'.
+            var signed = (record.Amount ?? 0m) * (record.Debit == true ? -1m : 1m);
 
             if (groups.TryGetValue(key, out var existing))
             {
@@ -264,6 +270,36 @@ internal static class RaindanceWriter
 
     private static string? FirstNonEmpty(params string?[] values) =>
         values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value))?.Trim();
+
+    private static string? AppendWithinLength(string? text, string? suffix, int maxLength)
+    {
+        if (string.IsNullOrWhiteSpace(suffix))
+        {
+            return text;
+        }
+
+        var normalizedSuffix = suffix.Trim();
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return normalizedSuffix.Length <= maxLength
+                ? normalizedSuffix
+                : normalizedSuffix[..maxLength];
+        }
+
+        var normalizedText = text.Trim();
+        var availableTextLength = maxLength - normalizedSuffix.Length - 1;
+        if (availableTextLength <= 0)
+        {
+            return normalizedSuffix[..Math.Min(normalizedSuffix.Length, maxLength)];
+        }
+
+        if (normalizedText.Length > availableTextLength)
+        {
+            normalizedText = normalizedText[..availableTextLength].TrimEnd();
+        }
+
+        return $"{normalizedText} {normalizedSuffix}";
+    }
 
     private static string? JoinNonEmpty(string separator, params string?[] values)
     {
