@@ -82,6 +82,6 @@ R invoice row
 K accounting row
 ```
 
-The H-record invoice-number field at positions 200–209 is intentionally blank so Raindance assigns the invoice number. Each R-record row text ends with the same formatted periodisation used at K positions 175–184. When necessary, the original row text is shortened so the period remains visible within the 60-character field.
+The H-record invoice-number field at positions 200–209 is intentionally blank so Raindance assigns the invoice number. Every invoiced row is followed by a text-only R record containing its invoice period as `YYYY-MM` or `YYYY-MM - YYYY-MM`. The accounting K record continues to use the compact `YYMM` or `YYMM YYMM` representation at positions 175–184.
 
 The Raindance byte stream is ISO-8859-1/Latin-1 encoded. If the file is opened as UTF-8 in an editor, Swedish characters will appear broken even though the bytes are correct for the target format.

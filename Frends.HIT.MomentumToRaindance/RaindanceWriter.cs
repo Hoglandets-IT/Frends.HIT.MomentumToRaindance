@@ -20,6 +20,7 @@ internal static class RaindanceWriter
         {
             builder.Append(BuildCustomerRecord(node)).Append("\r\n");
             builder.Append(BuildInvoiceHeaderRecord(node)).Append("\r\n");
+            var invoicePeriod = InvoicePeriod(node.LedgerNote?.RefersToPeriodDisplayName);
 
             foreach (var ledger in node.Ledgers ?? [])
             {
@@ -30,7 +31,12 @@ internal static class RaindanceWriter
                         continue;
                     }
 
-                    builder.Append(BuildInvoiceRowRecord(node, row)).Append("\r\n");
+                    builder.Append(BuildInvoiceRowRecord(row)).Append("\r\n");
+
+                    if (invoicePeriod is not null)
+                    {
+                        builder.Append(BuildInvoicePeriodRecord(invoicePeriod)).Append("\r\n");
+                    }
 
                     foreach (var grouped in GroupRevenueRecords(row.Records))
                     {
@@ -79,21 +85,27 @@ internal static class RaindanceWriter
         return record.ToString();
     }
 
-    private static string BuildInvoiceRowRecord(LedgerNoteAccountingNode node, LedgerRowEntry row)
+    private static string BuildInvoiceRowRecord(LedgerRowEntry row)
     {
         var ledgerRow = row.LedgerRow;
         var amount = ledgerRow?.NetAmount;
-        var rowText = AppendWithinLength(
-            FirstNonEmpty(ledgerRow?.Text?.TextDetailed, ledgerRow?.Text?.Text),
-            Periodization(node.LedgerNote?.RefersToPeriodDisplayName),
-            60);
         var record = new FixedWidthRecord(105);
 
         record.Put(1, 1, "R");
-        record.Put(3, 60, rowText);
+        record.Put(3, 60, FirstNonEmpty(ledgerRow?.Text?.TextDetailed, ledgerRow?.Text?.Text));
         record.Put(63, 15, FormatAmount(amount), Align.Right);
         record.Put(78, 1, amount < 0 ? "-" : null);
         record.Put(79, 3, VatCode(ledgerRow?.VatType?.Id));
+
+        return record.ToString();
+    }
+
+    private static string BuildInvoicePeriodRecord(string invoicePeriod)
+    {
+        var record = new FixedWidthRecord(105);
+
+        record.Put(1, 1, "R");
+        record.Put(3, 60, invoicePeriod);
 
         return record.ToString();
     }
@@ -244,25 +256,43 @@ internal static class RaindanceWriter
 
     private static string? Periodization(string? periodDisplayName)
     {
-        if (string.IsNullOrWhiteSpace(periodDisplayName))
-        {
-            return null;
-        }
-
-        var periods = Regex.Matches(periodDisplayName, @"\d{4}-\d{2}")
-            .Select(match => match.Value)
-            .Select(value => DateTime.TryParseExact(value, "yyyy-MM", CultureInfo.InvariantCulture, DateTimeStyles.None, out var date)
-                ? date.ToString("yyMM", CultureInfo.InvariantCulture)
-                : null)
-            .Where(value => value is not null)
-            .ToArray();
+        var periods = ParsePeriods(periodDisplayName);
 
         return periods.Length switch
         {
-            1 => periods[0],
-            >= 2 => $"{periods[0]} {periods[^1]}",
+            1 => periods[0].ToString("yyMM", CultureInfo.InvariantCulture),
+            >= 2 => $"{periods[0].ToString("yyMM", CultureInfo.InvariantCulture)} {periods[^1].ToString("yyMM", CultureInfo.InvariantCulture)}",
             _ => null
         };
+    }
+
+    private static string? InvoicePeriod(string? periodDisplayName)
+    {
+        var periods = ParsePeriods(periodDisplayName);
+
+        return periods.Length switch
+        {
+            1 => periods[0].ToString("yyyy-MM", CultureInfo.InvariantCulture),
+            >= 2 => $"{periods[0].ToString("yyyy-MM", CultureInfo.InvariantCulture)} - {periods[^1].ToString("yyyy-MM", CultureInfo.InvariantCulture)}",
+            _ => null
+        };
+    }
+
+    private static DateTime[] ParsePeriods(string? periodDisplayName)
+    {
+        if (string.IsNullOrWhiteSpace(periodDisplayName))
+        {
+            return [];
+        }
+
+        return Regex.Matches(periodDisplayName, @"\d{4}-\d{2}")
+            .Select(match => match.Value)
+            .Select(value => DateTime.TryParseExact(value, "yyyy-MM", CultureInfo.InvariantCulture, DateTimeStyles.None, out var date)
+                ? date
+                : (DateTime?)null)
+            .Where(value => value is not null)
+            .Select(value => value!.Value)
+            .ToArray();
     }
 
     private static string? DigitsOnly(string? value) =>
@@ -270,36 +300,6 @@ internal static class RaindanceWriter
 
     private static string? FirstNonEmpty(params string?[] values) =>
         values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value))?.Trim();
-
-    private static string? AppendWithinLength(string? text, string? suffix, int maxLength)
-    {
-        if (string.IsNullOrWhiteSpace(suffix))
-        {
-            return text;
-        }
-
-        var normalizedSuffix = suffix.Trim();
-        if (string.IsNullOrWhiteSpace(text))
-        {
-            return normalizedSuffix.Length <= maxLength
-                ? normalizedSuffix
-                : normalizedSuffix[..maxLength];
-        }
-
-        var normalizedText = text.Trim();
-        var availableTextLength = maxLength - normalizedSuffix.Length - 1;
-        if (availableTextLength <= 0)
-        {
-            return normalizedSuffix[..Math.Min(normalizedSuffix.Length, maxLength)];
-        }
-
-        if (normalizedText.Length > availableTextLength)
-        {
-            normalizedText = normalizedText[..availableTextLength].TrimEnd();
-        }
-
-        return $"{normalizedText} {normalizedSuffix}";
-    }
 
     private static string? JoinNonEmpty(string separator, params string?[] values)
     {
