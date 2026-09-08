@@ -196,10 +196,12 @@ public class MomentumApiConfiguration
 public class FetchInput
 {
     /// <summary>
-    /// Last successfully delivered Momentum local ID. No-work results return this value unchanged.
+    /// Last successfully delivered Momentum local ID, supplied as an integer or a numeric string
+    /// from shared state. Defaults to zero; explicit null, invalid or out-of-range values fail.
     /// </summary>
     [DefaultValue(0)]
-    public int LastLocalId { get; set; }
+    [DisplayFormat(DataFormatString = "Expression")]
+    public object? LastLocalId { get; set; } = 0;
 }
 
 /// <summary>
@@ -208,10 +210,12 @@ public class FetchInput
 public class ConvertInput
 {
     /// <summary>
-    /// Previously delivered local ID. Only newer nodes are converted; defaults to zero for full conversion.
+    /// Previously delivered local ID, supplied as an integer or a numeric string. Only newer nodes
+    /// are converted; defaults to zero for full conversion. Invalid values fail rather than resetting.
     /// </summary>
     [DefaultValue(0)]
-    public int LastLocalId { get; set; }
+    [DisplayFormat(DataFormatString = "Expression")]
+    public object? LastLocalId { get; set; } = 0;
 
     /// <summary>
     /// Raw Momentum GraphQL JSON response.
@@ -297,9 +301,10 @@ public class ConversionResult
     public int NodeCount { get; set; }
 
     /// <summary>
-    /// Raindance fixed-width file content. Write to disk/SFTP using ISO-8859-1/Latin-1 encoding.
+    /// Raindance file bytes, already encoded as ISO-8859-1/Latin-1 with CRLF line endings.
+    /// Pass directly to the file writer's byte-content input using RAW mode; do not re-encode.
     /// </summary>
-    public string ResultFile { get; set; }
+    public byte[] ResultFile { get; set; }
 
     /// <summary>
     /// Informational message.
@@ -311,19 +316,19 @@ public class ConversionResult
     /// </summary>
     /// <param name="success">Whether the conversion succeeded.</param>
     /// <param name="nodeCount">Number of Momentum ledger note accounting nodes in the response.</param>
-    /// <param name="resultFile">Raindance fixed-width file content. Persist using ISO-8859-1/Latin-1 encoding.</param>
+    /// <param name="resultFile">Encoded Raindance file bytes. Persist unchanged using RAW mode.</param>
     /// <param name="info">Informational message.</param>
-    public ConversionResult(bool success, int nodeCount, string resultFile, string info)
+    public ConversionResult(bool success, int nodeCount, byte[] resultFile, string info)
         : this(success, nodeCount, resultFile, info, 0) { }
 
     /// <summary>Creates a conversion result and its proposed delivery checkpoint.</summary>
     /// <param name="success">Whether conversion succeeded.</param>
     /// <param name="nodeCount">Number of emitted invoices.</param>
-    /// <param name="resultFile">Latin-1-compatible fixed-width text with CRLF endings.</param>
+    /// <param name="resultFile">Latin-1-encoded fixed-width bytes with CRLF endings.</param>
     /// <param name="info">Operation summary.</param>
     /// <param name="lastLocalId">Checkpoint to store after delivery.</param>
     [JsonConstructor]
-    public ConversionResult(bool success, int nodeCount, string resultFile, string info, int lastLocalId)
+    public ConversionResult(bool success, int nodeCount, byte[] resultFile, string info, int lastLocalId)
     {
         Success = success;
         NodeCount = nodeCount;

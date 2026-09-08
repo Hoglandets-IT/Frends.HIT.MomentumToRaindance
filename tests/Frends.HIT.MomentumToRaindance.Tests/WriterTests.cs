@@ -13,8 +13,9 @@ public sealed class WriterTests
         var lines = Fixture.Lines(result.ResultFile);
         Assert.Equal(new[] { 'S', 'H', 'R', 'R', 'K' }, lines.Select(line => line[0]).ToArray());
         Assert.Equal(new[] { 305, 359, 105, 105, 184 }, lines.Select(line => line.Length).ToArray());
-        Assert.EndsWith("\r\n", result.ResultFile);
-        Assert.DoesNotContain("\n", result.ResultFile.Replace("\r\n", "", StringComparison.Ordinal));
+        var text = Encoding.Latin1.GetString(result.ResultFile);
+        Assert.EndsWith("\r\n", text);
+        Assert.DoesNotContain("\n", text.Replace("\r\n", "", StringComparison.Ordinal));
         Assert.Equal("Testkund ÅÄÖ", lines[0][14..54].TrimEnd());
         Assert.Equal("190001010000", lines[0][194..206]);
         Assert.Equal("PRIV", lines[0][224..234].TrimEnd());
@@ -37,12 +38,14 @@ public sealed class WriterTests
         Assert.Equal(' ', lines[4][139]);
         Assert.Equal("2607 2609", lines[4][174..184].TrimEnd());
 
-        var bytes = Encoding.GetEncoding("iso-8859-1", EncoderFallback.ExceptionFallback,
-            DecoderFallback.ExceptionFallback).GetBytes(result.ResultFile);
-        Assert.Equal(result.ResultFile.Length, bytes.Length);
+        // Compile-time contract: usable directly by a Frends file writer's byte[] input.
+        byte[] bytes = result.ResultFile;
+        Assert.Equal(text.Length, bytes.Length);
         Assert.Contains((byte)0xC5, bytes);
         Assert.Contains((byte)0xC4, bytes);
         Assert.Contains((byte)0xD6, bytes);
+        Assert.Equal(new byte[] { 13, 10 }, bytes[^2..]);
+        Assert.DoesNotContain("?", text);
     }
 
     [Fact]

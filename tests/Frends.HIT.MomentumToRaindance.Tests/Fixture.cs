@@ -90,5 +90,6 @@ internal static class Fixture
             GraphQlResult = Envelope(nodes)
         });
 
-    public static string[] Lines(string text) => text.Split("\r\n", StringSplitOptions.RemoveEmptyEntries);
+    public static string[] Lines(byte[] bytes) => System.Text.Encoding.Latin1.GetString(bytes)
+        .Split("\r\n", StringSplitOptions.RemoveEmptyEntries);
 }

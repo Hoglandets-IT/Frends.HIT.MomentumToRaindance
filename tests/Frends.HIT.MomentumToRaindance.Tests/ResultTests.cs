@@ -25,7 +25,7 @@ public sealed class ResultTests
     [InlineData(123)]
     public void Conversion_result_checkpoint_survives_serialization(int lastLocalId)
     {
-        var original = new ConversionResult(true, 1, "Raindance text", "Converted", lastLocalId)
+        var original = new ConversionResult(true, 1, new byte[] { 0xC5, 0xC4, 0xD6, 13, 10 }, "Converted", lastLocalId)
         {
             Filename = "300K24_20260908_143025.txt"
         };

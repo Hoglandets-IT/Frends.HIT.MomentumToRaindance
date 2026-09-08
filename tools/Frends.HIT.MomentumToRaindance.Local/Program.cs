@@ -70,8 +70,7 @@ try
     }
 
     EnsureParentDirectory(outputPath);
-    var latin1 = Encoding.GetEncoding("iso-8859-1", EncoderFallback.ExceptionFallback, DecoderFallback.ExceptionFallback);
-    var outputBytes = latin1.GetBytes(converted.ResultFile);
+    var outputBytes = converted.ResultFile;
     await File.WriteAllBytesAsync(outputPath, outputBytes);
 
     Console.WriteLine($"Wrote {converted.NodeCount} node(s), {outputBytes.Length} bytes: {outputPath}");

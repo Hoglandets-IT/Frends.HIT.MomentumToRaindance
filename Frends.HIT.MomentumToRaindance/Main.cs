@@ -37,7 +37,7 @@ public class Main
     {
         ArgumentNullException.ThrowIfNull(connection);
         ArgumentNullException.ThrowIfNull(input);
-        ValidateCheckpoint(input.LastLocalId);
+        var inputCheckpoint = ParseCheckpoint(input.LastLocalId);
         if (connection.TimeoutSeconds is < 1 or > 3600)
             throw new ArgumentOutOfRangeException(nameof(connection.TimeoutSeconds), "Timeout must be between 1 and 3600 seconds.");
 
@@ -46,7 +46,7 @@ public class Main
         timeout.Token.ThrowIfCancellationRequested();
         var configuration = await connection.GetMomentumConfigurationAsync(timeout.Token).ConfigureAwait(false);
         var client = new MomentumClient(configuration, JsonSettings, httpClient);
-        var graphQlPayload = await client.FetchLedgerNoteAccountingsSyncAsync(input.LastLocalId, timeout.Token).ConfigureAwait(false);
+        var graphQlPayload = await client.FetchLedgerNoteAccountingsSyncAsync(inputCheckpoint, timeout.Token).ConfigureAwait(false);
         // HTTP 200 may still contain GraphQL errors or a missing/partial data envelope.
         _ = DeserializeGraphQlResult(graphQlPayload);
         var formatted = PrettyPrintJson(graphQlPayload);
@@ -56,15 +56,15 @@ public class Main
             success: true,
             resultFile: formatted,
             info: "Momentum GraphQL response fetched. Fetching does not advance the delivery checkpoint.",
-            lastLocalId: input.LastLocalId);
+            lastLocalId: inputCheckpoint);
     }
 
     /// <summary>
-    /// Convert newer Momentum nodes to Raindance fixed-width text. The whole batch must succeed.
+    /// Convert newer Momentum nodes to Raindance fixed-width bytes. The whole batch must succeed.
     /// </summary>
     /// <param name="input">Existing GraphQL JSON and the last delivered checkpoint.</param>
     /// <param name="cancellationToken">Cancellation from the Frends process.</param>
-    /// <returns>Latin-1-compatible CRLF text and a checkpoint to persist only after successful file delivery.</returns>
+    /// <returns>Latin-1-encoded CRLF file bytes and a checkpoint to persist only after successful file delivery.</returns>
     [DisplayName("Convert GraphQL Result")]
     public static ConversionResult ConvertGraphQlResult(
         [PropertyTab] ConvertInput input,
@@ -73,7 +73,7 @@ public class Main
     internal static ConversionResult ConvertCore(ConvertInput input, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(input);
-        ValidateCheckpoint(input.LastLocalId);
+        var inputCheckpoint = ParseCheckpoint(input.LastLocalId);
         cancellationToken.ThrowIfCancellationRequested();
         var result = DeserializeGraphQlResult(input.GraphQlResult);
         var pending = new List<LedgerNoteAccountingNode>();
@@ -84,7 +84,7 @@ public class Main
             cancellationToken.ThrowIfCancellationRequested();
             if (node?.LocalId is not int localId || localId <= 0)
                 throw new InvalidOperationException("Every Momentum node must have a positive localId.");
-            if (localId <= input.LastLocalId)
+            if (localId <= inputCheckpoint)
                 continue;
             if (!ids.Add(localId))
                 throw new InvalidOperationException("Momentum returned duplicate pending local IDs.");
@@ -95,15 +95,15 @@ public class Main
         var ordered = pending.OrderBy(node => node.LocalId).ToArray();
         var selected = new GraphQlResponse<LedgerNoteAccountingsSyncData>(
             new LedgerNoteAccountingsSyncData(new LedgerNoteAccountingsSyncConnection(ordered)), null);
-        var raindanceText = RaindanceWriter.ToText(selected, cancellationToken);
+        var raindanceBytes = RaindanceWriter.ToBytes(selected, cancellationToken);
         var invoiceCount = ordered.Count(RaindanceWriter.HasInvoiceRows);
-        var lastLocalId = invoiceCount == 0 ? input.LastLocalId : ordered.Max(node => node.LocalId!.Value);
+        var lastLocalId = invoiceCount == 0 ? inputCheckpoint : ordered.Max(node => node.LocalId!.Value);
         cancellationToken.ThrowIfCancellationRequested();
 
         return new ConversionResult(
             success: true,
             nodeCount: invoiceCount,
-            resultFile: raindanceText,
+            resultFile: raindanceBytes,
             info: invoiceCount == 0
                 ? "No new invoice rows. The input checkpoint is unchanged."
                 : "GraphQL response converted to Raindance. Persist LastLocalId only after successful file delivery.",
@@ -113,10 +113,26 @@ public class Main
         };
     }
 
-    private static void ValidateCheckpoint(int lastLocalId)
+    internal static int ParseCheckpoint(object? value)
     {
-        if (lastLocalId < 0)
-            throw new ArgumentOutOfRangeException(nameof(lastLocalId), "LastLocalId must be nonnegative.");
+        // Keep the Frends binding boundary flexible, but normalize before any request or conversion.
+        // Do not use Convert.ToInt32: it turns null into zero and rounds fractional numbers.
+        var checkpoint = value switch
+        {
+            int number => number,
+            long number when number is >= 0 and <= int.MaxValue => (int)number,
+            uint number when number <= int.MaxValue => (int)number,
+            ulong number when number <= int.MaxValue => (int)number,
+            short number => number,
+            ushort number => number,
+            byte number => number,
+            sbyte number => number,
+            string text when int.TryParse(text.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out var number) => number,
+            _ => -1
+        };
+        return checkpoint >= 0
+            ? checkpoint
+            : throw new ArgumentException("LastLocalId must be an integer or numeric string between 0 and 2147483647.", nameof(FetchInput.LastLocalId));
     }
 
     private static void ValidateNode(LedgerNoteAccountingNode node)

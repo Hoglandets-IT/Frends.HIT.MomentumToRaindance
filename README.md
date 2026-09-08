@@ -27,13 +27,13 @@ Inputs are `MomentumConnection`, `FetchInput`, and an optional `CancellationToke
 
 | Fetch input | Type / default | Meaning |
 | --- | --- | --- |
-| `LastLocalId` | `int`, `0` | Last successfully delivered source local ID. Must be nonnegative. Zero requests the initial batch. |
+| `LastLocalId` | Integer or numeric `string`, default `0` | Last successfully delivered source local ID. Accepts a shared-state value such as `"123"` directly; must fit the nonnegative `int` range. Zero requests the initial batch. |
 
 | Fetch result | Meaning |
 | --- | --- |
 | `Success` | `true` on return; failures throw rather than returning a partially successful result. |
 | `ResultFile` | Prettified GraphQL JSON as a .NET `string`, not a byte array or file path. |
-| `LastLocalId` | The supplied input checkpoint, unchanged even when new data was fetched. |
+| `LastLocalId` | The supplied checkpoint's numeric value as an `int`, unchanged even when new data was fetched. |
 | `Info` | Human-readable operation summary; not a machine-readable status code. |
 
 GraphQL errors, including partial data accompanied by errors, are failures. A valid empty `nodes` array is a successful fetch. Fetch validates the response envelope; invoice-level validation happens in Convert.
@@ -47,18 +47,30 @@ Takes `ConvertInput` and an optional `CancellationToken`. It makes no HTTP reque
 | Convert input | Type / default | Meaning |
 | --- | --- | --- |
 | `GraphQlResult` | `string` | Complete GraphQL response, including `data.ledgerNoteAccountingsSync.nodes`. |
-| `LastLocalId` | `int`, `0` | Same checkpoint supplied to Fetch. Nodes at or below it are excluded. |
+| `LastLocalId` | Integer or numeric `string`, default `0` | Same checkpoint supplied to Fetch. Nodes at or below it are excluded. |
 
 | Conversion result | Meaning |
 | --- | --- |
 | `Success` | `true` on return. Invalid data or cancellation throws; no advanced checkpoint is returned. |
-| `ResultFile` | Fixed-width Raindance text, with CRLF line endings and a final CRLF when nonempty. Write it using ISO-8859-1/Latin-1 without a BOM; do not trim its spaces or rewrite its line endings. |
+| `ResultFile` | `byte[]` containing the complete Raindance file, already encoded as ISO-8859-1/Latin-1 without a BOM, with CRLF line endings. Pass directly to the file writer's byte-content input using RAW mode. Do not re-encode, trim, or rewrite line endings. No work returns an empty byte array. |
 | `Filename` | Suggested name for the later file-writer task, e.g. `300K24_20260908_143025.txt`. Generated once using the Frends agent's local time, in `yyyyMMdd_HHmmss` format. Available on empty results too; still skip writing when `NodeCount == 0`. |
 | `NodeCount` | Number of invoices emitted, not the number of raw nodes, R records, or K records. |
 | `LastLocalId` | Input value on no work; otherwise the highest handled local ID in the validated new batch. Persist only after successful file delivery. |
 | `Info` | Human-readable summary. |
 
 Nodes are ordered by ascending `localId`. Missing/nonpositive IDs and duplicate newer IDs are rejected. Explicitly empty invoices and invoices containing only the excluded rounding rows produce no output. In a mixed batch, those intentional no-op nodes are included in the highest handled ID; an entirely no-op batch leaves the checkpoint unchanged. See [the format mapping](docs/raindance-format.md) for supported input and validation rules.
+
+### File-writer wiring
+
+For a conversion step named `ConvertGraphQL`, set the later file writer's **File** to `#result[ConvertGraphQL].Filename`, **Byte content** to `#result[ConvertGraphQL].ResultFile`, and **Encoding** to **RAW**. The conversion task already encodes the bytes; no expression-side conversion is needed. Upgrade the task package and recompile the process when moving from a version that returned a string. Fetch still returns JSON as a string for the intermediate processing/Convert input.
+
+### Shared-state checkpoint inputs
+
+Both tasks accept `#result[LastRunLocalID].Value` directly, whether that value is an integer or a numeric string. The input properties use `object` at the Frends binding boundary, then normalize to an `int` before processing. Result checkpoints remain `int` values. The input editor uses the [Frends expression format](https://docs.frends.com/guides/development/creating-custom-tasks).
+
+Numeric strings may contain surrounding whitespace and leading zeroes. Explicit null, empty strings, nonnumeric strings, negative values, floating-point/decimal values, and values above `2147483647` are rejected. Only an omitted input defaults to zero; invalid stored state never silently resets the checkpoint.
+
+After upgrading from an integer-only input version, update both task references in the Frends process and recompile it. An already installed older package cannot accept a string assignment merely because the source code has been fixed.
 
 ## Connection settings
 

@@ -12,7 +12,7 @@ Treat `LastLocalId` as a durable delivery checkpoint, not as the largest number 
 2. Pass it to Fetch as `FetchInput.LastLocalId`.
 3. Pass the returned JSON and that same checkpoint to Convert as `ConvertInput.GraphQlResult` and `ConvertInput.LastLocalId`.
 4. If `NodeCount == 0`, do not deliver an empty invoice file. `ResultFile` is empty and `LastLocalId` is unchanged.
-5. Otherwise, write/deliver the complete `ResultFile` as ISO-8859-1/Latin-1, preserving all spaces and CRLFs.
+5. Otherwise, pass the complete `ResultFile` byte array to the file writer's byte-content input in RAW mode. It is already ISO-8859-1/Latin-1 encoded; preserve those bytes without re-encoding.
 6. Only after the delivery step succeeds under your operational acceptance policy, persist **the conversion result's** `LastLocalId`.
 
 Example with input checkpoint `120`:
@@ -55,7 +55,7 @@ After an ambiguous timeout or restart, reconcile the file and Raindance import s
 - Import synthetic/approved examples in Raindance test covering an ordinary invoice, a credit, VAT, split revenue coding, private and organisation customers, a one-month period, a multi-month period, and Swedish text. Verify invoice totals, customer matching, row printing, and K accounting periods in Raindance.
 - Confirm defaults for deliberately blank H fields, especially invoice number, invoice date, and payment terms. The module does not copy Momentum's due date or invoice total into H.
 - Verify the rounding-row exclusion and invoice-wide period source are appropriate. The exporter checks R/K revenue agreement, but does not reconcile the complete invoice against Momentum's `toPay` or calculate VAT totals.
-- Configure ISO-8859-1/Latin-1 output, CRLF preservation, durable file delivery, checkpoint persistence order, run serialization, alerting, and the duplicate-delivery recovery procedure.
+- Configure RAW byte delivery of the already Latin-1-encoded output, CRLF preservation, durable file delivery, checkpoint persistence order, run serialization, alerting, and the duplicate-delivery recovery procedure.
 - Exercise failure paths: wrong credentials, unavailable endpoint, malformed JSON, unsupported characters, invalid invoice data, cancelled run, failed delivery, and checkpoint-store failure. The persisted checkpoint must remain safe.
 
 Automated unit/integration tests are not evidence that a particular production Raindance configuration accepts the file. Keep importer acceptance and source batching confirmation as explicit deployment gates.
@@ -71,6 +71,7 @@ Tasks throw on failure rather than returning `Success = false`. A successful emp
 | Timeout or cancellation | Fetch uses one configured timeout budget for secret/auth/query requests. Conversion observes cancellation. Confirm no downstream delivery completed before retrying an interrupted process. |
 | Non-JSON or GraphQL error | Check the configured endpoint and server-side diagnostics. HTTP 200 with GraphQL errors is still a failed batch. |
 | Invalid local ID, duplicate newer ID, or missing structure | Inspect a restricted raw response dump and resolve the source/transform issue; do not save a higher checkpoint to bypass it. |
+| Cannot convert shared-state `string` to `int` during parameter initialization | Upgrade both task references to a package with string/integer checkpoint inputs and recompile the process. Pass the shared-state value directly; both tasks normalize it internally and return integer checkpoints. Invalid or missing stored values fail rather than silently restarting from zero. |
 | Unsupported customer class, VAT, or change type | Verify source configuration and update the mapping deliberately if the case is required. Unknown values are not silently guessed. |
 | R/K amount mismatch | Check `netAmount`, revenue account selection, `records[].amount`, `debit`, coding groups, and minor-unit rounding. |
 | Field overflow or unsupported text | Inspect the relevant field. Descriptions have deliberate truncation; identity/code/amount fields must fit. Replace unsupported source characters only with an agreed business mapping. |

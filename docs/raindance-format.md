@@ -2,7 +2,7 @@
 
 This describes the layout emitted by `RaindanceWriter`, not a general Raindance format specification. Positions are **one-based and inclusive**. Every record is space-padded to its stated length; its following CRLF is not included in that length. All positions not listed below remain spaces. ISO-8859-1/Latin-1 encoding makes each supported character one byte.
 
-Within each `data.ledgerNoteAccountingsSync.nodes[]`, source rows are visited in their supplied ledger/row order. One emitted invoice has this structure:
+`ConversionResult.ResultFile` returns these records as an already encoded `byte[]` for RAW file delivery, not a string. Within each `data.ledgerNoteAccountingsSync.nodes[]`, source rows are visited in their supplied ledger/row order. One emitted invoice has this structure:
 
 ```text
 S customer                                      305 characters
