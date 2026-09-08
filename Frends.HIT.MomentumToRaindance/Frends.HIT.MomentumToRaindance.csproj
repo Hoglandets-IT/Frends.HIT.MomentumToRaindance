@@ -6,7 +6,7 @@
         <Description>Frends task for converting Momentum ledger note accountings to Raindance import files</Description>
         
         <!--- The version of the task. Can remain at 0.0.1, we specify this manually in the build process -->
-        <Version>1.0.1</Version>
+        <Version>1.0.2</Version>
         
         <!-- The name of the author -->
         <authors>Höglandets IT</authors>

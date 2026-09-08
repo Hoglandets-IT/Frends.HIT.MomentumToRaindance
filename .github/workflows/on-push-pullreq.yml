@@ -1,16 +1,49 @@
+name: Validate and publish
+
 on:
   push:
-    paths: ['Frends.HIT.MomentumToRaindance/**', '.github/workflows/on-push-pullreq.yml']
     branches: ['main']
   pull_request:
-    paths: ['Frends.HIT.MomentumToRaindance/**', '.github/workflows/on-push-pullreq.yml']
     branches: ['main']
 
+permissions:
+  contents: read
+
 jobs:
-  build:
+  validate:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
+    - uses: actions/checkout@v7
+      with:
+        persist-credentials: false
+    - uses: actions/setup-dotnet@v6
+      with:
+        dotnet-version: |
+          8.0.x
+          10.0.x
+    - name: Restore
+      run: dotnet restore Frends.HIT.MomentumToRaindance.sln
+    - name: Build
+      run: dotnet build Frends.HIT.MomentumToRaindance.sln --configuration Release --no-restore --warnaserror
+    - name: Test
+      run: dotnet test tests/Frends.HIT.MomentumToRaindance.Tests/Frends.HIT.MomentumToRaindance.Tests.csproj --configuration Release --no-build
+    - name: Validate package
+      run: dotnet pack Frends.HIT.MomentumToRaindance/Frends.HIT.MomentumToRaindance.csproj --configuration Release --no-build --output artifacts
+
+  publish:
+    needs: validate
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+    - uses: actions/setup-dotnet@v6
+      with:
+        dotnet-version: |
+          8.0.x
+          10.0.x
     - name: Build and publish
       uses: hoglandets-it/gha-dotnet-builder@main
       with:

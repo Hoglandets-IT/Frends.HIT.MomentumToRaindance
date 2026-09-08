@@ -1,3 +1,5 @@
+name: Publish release
+
 on:
   release:
     types: [published]
@@ -11,28 +13,43 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v1
+        uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: 8.x
+          dotnet-version: |
+            8.0.x
+            10.0.x
 
-      - name: Build and Pack
+      - name: Build and test
         run: |
-          dotnet restore ${{ github.event.repository.name }}/${{ github.event.repository.name }}.csproj
-          dotnet build --configuration Release ${{ github.event.repository.name }}/${{ github.event.repository.name }}.csproj /p:Version=$GITHUB_REF_NAME
-          dotnet pack --configuration Release ${{ github.event.repository.name }}/${{ github.event.repository.name }}.csproj --include-source /p:Version=$GITHUB_REF_NAME
-          dotnet nuget add source --name hit-registry --store-password-in-clear-text --username ${{ secrets.FRENDS_NUGET_V2_FEED_USER }} --password "${{ secrets.FRENDS_NUGET_V2_FEED_KEY }}" ${{ secrets.FRENDS_NUGET_V2_FEED_URL }}
-          dotnet nuget push --source hit-registry ${{ github.event.repository.name }}/bin/Release/${{ github.event.repository.name }}.*.nupkg --skip-duplicate
+          dotnet restore Frends.HIT.MomentumToRaindance.sln
+          dotnet build Frends.HIT.MomentumToRaindance.sln --configuration Release --no-restore --warnaserror
+          dotnet test tests/Frends.HIT.MomentumToRaindance.Tests/Frends.HIT.MomentumToRaindance.Tests.csproj --configuration Release --no-build
+
+      - name: Pack release
+        run: |
+          release_version="${GITHUB_REF_NAME#v}"
+          dotnet pack Frends.HIT.MomentumToRaindance/Frends.HIT.MomentumToRaindance.csproj --configuration Release --no-restore --include-source --output artifacts /p:Version="$release_version"
+
+      - name: Publish package
+        env:
+          PACKAGE_FEED_USER: ${{ secrets.FRENDS_NUGET_V2_FEED_USER }}
+          PACKAGE_FEED_KEY: ${{ secrets.FRENDS_NUGET_V2_FEED_KEY }}
+          PACKAGE_FEED_URL: ${{ secrets.FRENDS_NUGET_V2_FEED_URL }}
+        run: |
+          dotnet nuget add source --name hit-registry --store-password-in-clear-text --username "$PACKAGE_FEED_USER" --password "$PACKAGE_FEED_KEY" "$PACKAGE_FEED_URL"
+          dotnet nuget push --source hit-registry 'artifacts/Frends.HIT.MomentumToRaindance.*.nupkg' --skip-duplicate
 
       - name: Upload binaries to release
         uses: svenstaro/upload-release-action@v2
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: ${{ github.event.repository.name }}/bin/Release/*.nupkg
+          file: artifacts/*.nupkg
           file_glob: true
           tag: ${{ github.ref }}
           overwrite: true
