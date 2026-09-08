@@ -18,7 +18,7 @@ public enum MomentumConfigurationSource
     /// <summary>
     /// From a path in HCP Vault/Infisical.
     /// </summary>
-    [Display(Name = "Hashicorp Vault")]
+    [Display(Name = "Infisical (legacy Vault option)")]
     HcpVault,
 
     /// <summary>
@@ -54,6 +54,7 @@ public class MomentumConnection
     /// </summary>
     [DefaultValue("")]
     [DisplayFormat(DataFormatString = "Expression")]
+    [PasswordPropertyText]
     [UIHint(nameof(ConfigurationSource), "", MomentumConfigurationSource.Json)]
     [Display(Name = "JSON Momentum Configuration")]
     public string JsonConfiguration { get; set; } = "";
@@ -92,23 +93,59 @@ public class MomentumConnection
     public string Password { get; set; } = "";
 
     /// <summary>
+    /// Overall Fetch timeout in seconds for secret resolution, authentication and GraphQL retrieval.
+    /// </summary>
+    [DefaultValue(100)]
+    [Range(1, 3600)]
+    public int TimeoutSeconds { get; set; } = 100;
+
+    /// <summary>
     /// Resolve the selected input source into a Momentum API configuration.
     /// </summary>
     /// <returns>Momentum API configuration.</returns>
     public MomentumApiConfiguration GetMomentumConfiguration()
     {
+        if (TimeoutSeconds is < 1 or > 3600)
+            throw new ArgumentOutOfRangeException(nameof(TimeoutSeconds), "Timeout must be between 1 and 3600 seconds.");
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(TimeoutSeconds));
+        return GetMomentumConfigurationAsync(timeout.Token).GetAwaiter().GetResult();
+    }
+
+    /// <summary>
+    /// Resolve connection settings asynchronously, including Infisical secret retrieval.
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation from the calling process.</param>
+    /// <returns>Momentum API configuration.</returns>
+    public async Task<MomentumApiConfiguration> GetMomentumConfigurationAsync(CancellationToken cancellationToken = default)
+    {
+        if (TimeoutSeconds is < 1 or > 3600)
+            throw new ArgumentOutOfRangeException(nameof(TimeoutSeconds), "Timeout must be between 1 and 3600 seconds.");
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(TimeoutSeconds));
+        cancellationToken = timeout.Token;
+        cancellationToken.ThrowIfCancellationRequested();
         var json = ConfigurationSource switch
         {
-            MomentumConfigurationSource.HcpVault => Helpers.GetInfisicalSecret(VaultPath),
+            MomentumConfigurationSource.HcpVault => await Helpers.GetInfisicalSecretAsync(VaultPath, cancellationToken).ConfigureAwait(false),
             MomentumConfigurationSource.Json => JsonConfiguration,
-            _ => null
+            MomentumConfigurationSource.Manual => null,
+            _ => throw new ArgumentOutOfRangeException(nameof(ConfigurationSource), "Unknown configuration source.")
         };
 
-        if (json is not null)
+        if (ConfigurationSource != MomentumConfigurationSource.Manual)
         {
-            var configuration = JsonConvert.DeserializeObject<MomentumApiConfiguration>(json);
-
-            return configuration ?? throw new InvalidOperationException("Momentum JSON configuration was empty.");
+            if (string.IsNullOrWhiteSpace(json))
+                throw new ArgumentException("Momentum JSON configuration is required.");
+            try
+            {
+                return JsonConvert.DeserializeObject<MomentumApiConfiguration>(json)
+                    ?? throw new ArgumentException("Momentum JSON configuration is empty.");
+            }
+            catch (JsonException)
+            {
+                // Do not retain the exception: parser messages may contain credentials.
+                throw new ArgumentException("Momentum configuration must be a valid JSON object.");
+            }
         }
 
         return new MomentumApiConfiguration
@@ -148,6 +185,7 @@ public class MomentumApiConfiguration
     /// Momentum password/API key.
     /// </summary>
     [JsonProperty("password")]
+    [PasswordPropertyText]
     public string Password { get; set; } = "";
 
 }
@@ -158,7 +196,7 @@ public class MomentumApiConfiguration
 public class FetchInput
 {
     /// <summary>
-    /// Last processed Momentum local id.
+    /// Last successfully delivered Momentum local ID. No-work results return this value unchanged.
     /// </summary>
     [DefaultValue(0)]
     public int LastLocalId { get; set; }
@@ -169,6 +207,12 @@ public class FetchInput
 /// </summary>
 public class ConvertInput
 {
+    /// <summary>
+    /// Previously delivered local ID. Only newer nodes are converted; defaults to zero for full conversion.
+    /// </summary>
+    [DefaultValue(0)]
+    public int LastLocalId { get; set; }
+
     /// <summary>
     /// Raw Momentum GraphQL JSON response.
     /// </summary>
@@ -182,7 +226,12 @@ public class ConvertInput
 public class FetchResult
 {
     /// <summary>
-    /// Whether the conversion succeeded.
+    /// Input checkpoint, unchanged. Fetching alone does not acknowledge invoice processing or delivery.
+    /// </summary>
+    public int LastLocalId { get; set; }
+
+    /// <summary>
+    /// Whether fetching succeeded.
     /// </summary>
     public bool Success { get; set; }
 
@@ -203,10 +252,20 @@ public class FetchResult
     /// <param name="resultFile">Pretty-printed Momentum GraphQL JSON response.</param>
     /// <param name="info">Informational message.</param>
     public FetchResult(bool success, string resultFile, string info)
+        : this(success, resultFile, info, 0) { }
+
+    /// <summary>Creates a fetch result with the caller's unchanged checkpoint.</summary>
+    /// <param name="success">Whether the fetch succeeded.</param>
+    /// <param name="resultFile">Prettified GraphQL JSON.</param>
+    /// <param name="info">Operation summary.</param>
+    /// <param name="lastLocalId">Input checkpoint.</param>
+    [JsonConstructor]
+    public FetchResult(bool success, string resultFile, string info, int lastLocalId)
     {
         Success = success;
         ResultFile = resultFile;
         Info = info;
+        LastLocalId = lastLocalId;
     }
 }
 
@@ -216,12 +275,18 @@ public class FetchResult
 public class ConversionResult
 {
     /// <summary>
+    /// Checkpoint to persist after successful file delivery. Unchanged on no work; otherwise the
+    /// highest handled local ID. A failed batch throws and returns no advanced checkpoint.
+    /// </summary>
+    public int LastLocalId { get; set; }
+
+    /// <summary>
     /// Whether the conversion succeeded.
     /// </summary>
     public bool Success { get; set; }
 
     /// <summary>
-    /// Number of Momentum ledger note accounting nodes in the response.
+    /// Number of invoices emitted, excluding old nodes and nodes with no non-rounding rows.
     /// </summary>
     public int NodeCount { get; set; }
 
@@ -243,10 +308,21 @@ public class ConversionResult
     /// <param name="resultFile">Raindance fixed-width file content. Persist using ISO-8859-1/Latin-1 encoding.</param>
     /// <param name="info">Informational message.</param>
     public ConversionResult(bool success, int nodeCount, string resultFile, string info)
+        : this(success, nodeCount, resultFile, info, 0) { }
+
+    /// <summary>Creates a conversion result and its proposed delivery checkpoint.</summary>
+    /// <param name="success">Whether conversion succeeded.</param>
+    /// <param name="nodeCount">Number of emitted invoices.</param>
+    /// <param name="resultFile">Latin-1-compatible fixed-width text with CRLF endings.</param>
+    /// <param name="info">Operation summary.</param>
+    /// <param name="lastLocalId">Checkpoint to store after delivery.</param>
+    [JsonConstructor]
+    public ConversionResult(bool success, int nodeCount, string resultFile, string info, int lastLocalId)
     {
         Success = success;
         NodeCount = nodeCount;
         ResultFile = resultFile;
         Info = info;
+        LastLocalId = lastLocalId;
     }
 }

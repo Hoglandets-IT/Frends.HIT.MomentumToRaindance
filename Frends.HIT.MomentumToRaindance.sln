@@ -3,12 +3,18 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Frends.HIT.MomentumToRainda
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Frends.HIT.MomentumToRaindance.Local", "tools\Frends.HIT.MomentumToRaindance.Local\Frends.HIT.MomentumToRaindance.Local.csproj", "{993C631C-0390-4CE4-A797-70F8F1428B61}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Frends.HIT.MomentumToRaindance.Tests", "tests\Frends.HIT.MomentumToRaindance.Tests\Frends.HIT.MomentumToRaindance.Tests.csproj", "{93851328-D59D-4C72-B193-6BAC90581C94}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
 		Release|Any CPU = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{93851328-D59D-4C72-B193-6BAC90581C94}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{93851328-D59D-4C72-B193-6BAC90581C94}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{93851328-D59D-4C72-B193-6BAC90581C94}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{93851328-D59D-4C72-B193-6BAC90581C94}.Release|Any CPU.Build.0 = Release|Any CPU
 		{5C7C6D33-92A5-4C4A-BE3F-947B3D890188}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{5C7C6D33-92A5-4C4A-BE3F-947B3D890188}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{5C7C6D33-92A5-4C4A-BE3F-947B3D890188}.Release|Any CPU.ActiveCfg = Release|Any CPU

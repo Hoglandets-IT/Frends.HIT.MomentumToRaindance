@@ -21,6 +21,7 @@
         <GenerateDocumentationFile>true</GenerateDocumentationFile>
         <IncludeSource>True</IncludeSource>
         <PackageTags>Frends</PackageTags>
+        <PackageReadmeFile>PACKAGE.md</PackageReadmeFile>
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
         
@@ -37,11 +38,13 @@
         
     <!-- Specify that the FrendsTaskMetadata.json file is included in the package -->
     <ItemGroup>
+        <None Include="../docs/package.md" Pack="true" PackagePath="/PACKAGE.md" />
         <None Include="FrendsTaskMetadata.json" Pack="true" PackagePath="/">
             <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
         </None>
     </ItemGroup>
     <ItemGroup>
         <EmbeddedResource Include="Queries\*.graphql" />
+        <InternalsVisibleTo Include="Frends.HIT.MomentumToRaindance.Tests" />
     </ItemGroup>
 </Project>
