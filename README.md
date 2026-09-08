@@ -67,7 +67,7 @@ Nodes are ordered by ascending `localId`. Missing/nonpositive IDs and duplicate 
 | --- | --- |
 | `Json` / JSON String, default | `JsonConfiguration` containing the object below. |
 | `Manual` / Manual Config | `AuthUrl`, `GraphQlUrl`, `Username`, `Password`. |
-| `HcpVault` / Infisical (legacy Vault option) | `VaultPath` pointing to an Infisical secret containing the same JSON object. The enum name is retained for existing Frends process compatibility; this is not a HashiCorp Vault API client. |
+| `HcpVault` | `VaultPath` pointing to a secret containing the same JSON object. This is the canonical secret-store option; the current backend uses Infisical. |
 
 ```json
 {
@@ -82,7 +82,9 @@ Nodes are ordered by ascending `localId`. Missing/nonpositive IDs and duplicate 
 
 All endpoints require HTTPS and normal certificate validation; redirects are not followed. Install the appropriate private CA on the Frends agent if required. The task uses pooled HTTP connections, does not share cookies, and does not retry HTTP requests automatically. JSON configuration and password fields are marked sensitive in the task UI; also configure process logging so fetched invoice/customer data and output files are not exposed unnecessarily.
 
-### Infisical configuration
+### HcpVault configuration
+
+The `HcpVault` option currently uses the Infisical backend.
 
 Set these environment variables on every Frends agent that may run the process:
 

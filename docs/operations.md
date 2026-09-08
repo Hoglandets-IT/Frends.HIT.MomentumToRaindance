@@ -48,7 +48,7 @@ After an ambiguous timeout or restart, reconcile the file and Raindance import s
 ## Before enabling scheduled production runs
 
 - Install the package on a Frends agent compatible with its .NET 8 target; check that both tasks, their property tabs, XML help, and results appear correctly.
-- Supply least-privilege Momentum credentials. If using Infisical, verify the agent environment variables and secret-path access. Ensure TLS trust is configured without certificate-validation bypasses.
+- Supply least-privilege Momentum credentials. If using HcpVault, verify the Infisical backend's agent environment variables and secret-path access. Ensure TLS trust is configured without certificate-validation bypasses.
 - Confirm `ledgerNoteAccountingsSync(lastLocalId)` returns a complete safe batch for advancing to its maximum ID: monotonically advancing IDs in the selected scope, no unreported earlier nodes, and documented paging/retention semantics. The current query performs one request and does not iterate page tokens.
 - Confirm the feed contains creation events. Non-`created` change types are deliberately rejected; this package does not apply update/delete events to existing Raindance invoices.
 - Verify the [dimension convention and full field mapping](raindance-format.md), customer class strings, and supported VAT IDs against production source configuration. Currently only null VAT (`K00`) and `standard` (`K25`) are supported.

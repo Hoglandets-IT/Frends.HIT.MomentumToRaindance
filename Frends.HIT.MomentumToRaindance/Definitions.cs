@@ -16,9 +16,9 @@ public enum MomentumConfigurationSource
     Json,
 
     /// <summary>
-    /// From a path in HCP Vault/Infisical.
+    /// From a HcpVault secret path.
     /// </summary>
-    [Display(Name = "Infisical (legacy Vault option)")]
+    [Display(Name = "HcpVault")]
     HcpVault,
 
     /// <summary>
@@ -35,13 +35,13 @@ public enum MomentumConfigurationSource
 public class MomentumConnection
 {
     /// <summary>
-    /// Whether to get configuration from JSON, HCP Vault/Infisical, or manual fields.
+    /// Whether to get configuration from JSON, HcpVault, or manual fields.
     /// </summary>
     [DefaultValue(MomentumConfigurationSource.Json)]
     public MomentumConfigurationSource ConfigurationSource { get; set; }
 
     /// <summary>
-    /// HCP Vault/Infisical path to a secret containing the Momentum JSON configuration.
+    /// HcpVault path to a secret containing the Momentum JSON configuration.
     /// </summary>
     [DefaultValue("")]
     [DisplayFormat(DataFormatString = "Text")]
