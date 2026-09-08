@@ -275,7 +275,7 @@ public class FetchResult
 public class ConversionResult
 {
     /// <summary>
-    /// Suggested output filename: 300KR24_yyyyMMdd_HHmmss.txt, using the Frends agent's local time.
+    /// Suggested output filename: 300K24_yyyyMMdd_HHmmss.txt, using the Frends agent's local time.
     /// Generated once per conversion result. Skip file delivery when NodeCount is zero.
     /// </summary>
     public string Filename { get; set; } = "";

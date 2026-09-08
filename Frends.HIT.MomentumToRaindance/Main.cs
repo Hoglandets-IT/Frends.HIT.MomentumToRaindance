@@ -109,7 +109,7 @@ public class Main
                 : "GraphQL response converted to Raindance. Persist LastLocalId only after successful file delivery.",
             lastLocalId: lastLocalId)
         {
-            Filename = "300KR24_" + DateTime.Now.ToString("yyyyMMdd_HHmmss", CultureInfo.InvariantCulture) + ".txt"
+            Filename = "300K24_" + DateTime.Now.ToString("yyyyMMdd_HHmmss", CultureInfo.InvariantCulture) + ".txt"
         };
     }
 

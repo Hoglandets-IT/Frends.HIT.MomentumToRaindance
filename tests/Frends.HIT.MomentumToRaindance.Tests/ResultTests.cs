@@ -27,7 +27,7 @@ public sealed class ResultTests
     {
         var original = new ConversionResult(true, 1, "Raindance text", "Converted", lastLocalId)
         {
-            Filename = "300KR24_20260908_143025.txt"
+            Filename = "300K24_20260908_143025.txt"
         };
         var restored = JsonConvert.DeserializeObject<ConversionResult>(JsonConvert.SerializeObject(original));
         Assert.NotNull(restored);
@@ -48,8 +48,8 @@ public sealed class ResultTests
         var result = hasInvoice ? Fixture.Convert(0, Fixture.Node()) : Fixture.Convert(0);
         var after = DateTime.Now;
 
-        Assert.Matches(@"\A300KR24_[0-9]{8}_[0-9]{6}\.txt\z", result.Filename);
-        var timestamp = DateTime.ParseExact(result.Filename[8..23], "yyyyMMdd_HHmmss", CultureInfo.InvariantCulture);
+        Assert.Matches(@"\A300K24_[0-9]{8}_[0-9]{6}\.txt\z", result.Filename);
+        var timestamp = DateTime.ParseExact(result.Filename[7..^4], "yyyyMMdd_HHmmss", CultureInfo.InvariantCulture);
         Assert.InRange(timestamp, before, after);
         Assert.Equal(hasInvoice ? 1 : 0, result.NodeCount);
         var restored = JsonConvert.DeserializeObject<ConversionResult>(JsonConvert.SerializeObject(result));
