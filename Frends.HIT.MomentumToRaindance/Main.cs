@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.ComponentModel.DataAnnotations;
+using System.Globalization;
 using System.Reflection;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -106,7 +107,10 @@ public class Main
             info: invoiceCount == 0
                 ? "No new invoice rows. The input checkpoint is unchanged."
                 : "GraphQL response converted to Raindance. Persist LastLocalId only after successful file delivery.",
-            lastLocalId: lastLocalId);
+            lastLocalId: lastLocalId)
+        {
+            Filename = "300KR24_" + DateTime.Now.ToString("yyyyMMdd_HHmmss", CultureInfo.InvariantCulture) + ".txt"
+        };
     }
 
     private static void ValidateCheckpoint(int lastLocalId)

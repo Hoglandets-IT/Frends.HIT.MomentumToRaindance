@@ -275,6 +275,12 @@ public class FetchResult
 public class ConversionResult
 {
     /// <summary>
+    /// Suggested output filename: 300KR24_yyyyMMdd_HHmmss.txt, using the Frends agent's local time.
+    /// Generated once per conversion result. Skip file delivery when NodeCount is zero.
+    /// </summary>
+    public string Filename { get; set; } = "";
+
+    /// <summary>
     /// Checkpoint to persist after successful file delivery. Unchanged on no work; otherwise the
     /// highest handled local ID. A failed batch throws and returns no advanced checkpoint.
     /// </summary>

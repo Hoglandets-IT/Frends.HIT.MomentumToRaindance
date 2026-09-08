@@ -53,6 +53,7 @@ Takes `ConvertInput` and an optional `CancellationToken`. It makes no HTTP reque
 | --- | --- |
 | `Success` | `true` on return. Invalid data or cancellation throws; no advanced checkpoint is returned. |
 | `ResultFile` | Fixed-width Raindance text, with CRLF line endings and a final CRLF when nonempty. Write it using ISO-8859-1/Latin-1 without a BOM; do not trim its spaces or rewrite its line endings. |
+| `Filename` | Suggested name for the later file-writer task, e.g. `300KR24_20260908_143025.txt`. Generated once using the Frends agent's local time, in `yyyyMMdd_HHmmss` format. Available on empty results too; still skip writing when `NodeCount == 0`. |
 | `NodeCount` | Number of invoices emitted, not the number of raw nodes, R records, or K records. |
 | `LastLocalId` | Input value on no work; otherwise the highest handled local ID in the validated new batch. Persist only after successful file delivery. |
 | `Info` | Human-readable summary. |
