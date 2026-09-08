@@ -1,87 +1,153 @@
 # Frends.HIT.MomentumToRaindance
 
-Frends task package for fetching Momentum ledger note accountings and converting them into a Raindance fixed-width import file.
+Fetches invoice accounting data from Momentum GraphQL and converts it into the fixed-width Raindance import format used by this integration. The package exposes two Frends tasks so a process can inspect or transform the fetched JSON before conversion. It does not write files, send invoices, or store a checkpoint itself.
 
-## Tasks
+The task library targets **.NET 8**. The local command-line tool targets **.NET 10** and is not part of the Frends task package.
+
+## Frends process setup
+
+Use the tasks in this order:
+
+```text
+Read saved LastLocalId
+  -> Fetch Ledger Note Accountings
+  -> Optional JSON processing
+  -> Convert GraphQL Result
+  -> If NodeCount > 0: durably deliver the Latin-1 file
+  -> Save the conversion result's LastLocalId after successful delivery
+```
+
+Pass the same saved checkpoint into both Fetch and Convert. Do not advance it from the fetched JSON yourself. On no work, the conversion returns an empty file and the input checkpoint unchanged; skip file delivery. Prevent overlapping runs for the same source/checkpoint. See [checkpoint and recovery rules](docs/operations.md) before production deployment.
 
 ### Fetch Ledger Note Accountings
 
-`Frends.HIT.MomentumToRaindance.Main.FetchLedgerNoteAccountings`
+Method: `Frends.HIT.MomentumToRaindance.Main.FetchLedgerNoteAccountings`
 
-Calls Momentum auth and GraphQL endpoints, then returns:
+Inputs are `MomentumConnection`, `FetchInput`, and an optional `CancellationToken` supplied by the caller/Frends runtime. The task resolves connection settings, authenticates, executes the embedded `ledgerNoteAccountingsSync(lastLocalId: ...)` query once, and returns prettified JSON. It does not acknowledge processing or delivery.
 
-- `ResultFile`: UTF-8 string, pretty-printed raw GraphQL JSON.
+| Fetch input | Type / default | Meaning |
+| --- | --- | --- |
+| `LastLocalId` | `int`, `0` | Last successfully delivered source local ID. Must be nonnegative. Zero requests the initial batch. |
 
-Connection settings can be supplied in the same style as `RemoteFS`:
+| Fetch result | Meaning |
+| --- | --- |
+| `Success` | `true` on return; failures throw rather than returning a partially successful result. |
+| `ResultFile` | Prettified GraphQL JSON as a .NET `string`, not a byte array or file path. |
+| `LastLocalId` | The supplied input checkpoint, unchanged even when new data was fetched. |
+| `Info` | Human-readable operation summary; not a machine-readable status code. |
 
-- `JSON String`: paste a JSON configuration into `JsonConfiguration`.
-- `Hashicorp Vault`: provide `VaultPath`; the task reads the secret using the Infisical environment variables.
-- `Manual Config`: enter the fields directly in Frends.
+GraphQL errors, including partial data accompanied by errors, are failures. A valid empty `nodes` array is a successful fetch. Fetch validates the response envelope; invoice-level validation happens in Convert.
 
-Valid JSON configuration:
+### Convert GraphQL Result
+
+Method: `Frends.HIT.MomentumToRaindance.Main.ConvertGraphQlResult`
+
+Takes `ConvertInput` and an optional `CancellationToken`. It makes no HTTP requests. It validates and converts the complete candidate batch before returning any output or advanced checkpoint.
+
+| Convert input | Type / default | Meaning |
+| --- | --- | --- |
+| `GraphQlResult` | `string` | Complete GraphQL response, including `data.ledgerNoteAccountingsSync.nodes`. |
+| `LastLocalId` | `int`, `0` | Same checkpoint supplied to Fetch. Nodes at or below it are excluded. |
+
+| Conversion result | Meaning |
+| --- | --- |
+| `Success` | `true` on return. Invalid data or cancellation throws; no advanced checkpoint is returned. |
+| `ResultFile` | Fixed-width Raindance text, with CRLF line endings and a final CRLF when nonempty. Write it using ISO-8859-1/Latin-1 without a BOM; do not trim its spaces or rewrite its line endings. |
+| `NodeCount` | Number of invoices emitted, not the number of raw nodes, R records, or K records. |
+| `LastLocalId` | Input value on no work; otherwise the highest handled local ID in the validated new batch. Persist only after successful file delivery. |
+| `Info` | Human-readable summary. |
+
+Nodes are ordered by ascending `localId`. Missing/nonpositive IDs and duplicate newer IDs are rejected. Explicitly empty invoices and invoices containing only the excluded rounding rows produce no output. In a mixed batch, those intentional no-op nodes are included in the highest handled ID; an entirely no-op batch leaves the checkpoint unchanged. See [the format mapping](docs/raindance-format.md) for supported input and validation rules.
+
+## Connection settings
+
+`MomentumConnection.ConfigurationSource` supports the following choices:
+
+| Source | Required settings |
+| --- | --- |
+| `Json` / JSON String, default | `JsonConfiguration` containing the object below. |
+| `Manual` / Manual Config | `AuthUrl`, `GraphQlUrl`, `Username`, `Password`. |
+| `HcpVault` / Infisical (legacy Vault option) | `VaultPath` pointing to an Infisical secret containing the same JSON object. The enum name is retained for existing Frends process compatibility; this is not a HashiCorp Vault API client. |
 
 ```json
 {
   "authurl": "https://example.invalid/momentum/auth",
   "graphqlurl": "https://example.invalid/momentum/graphql",
   "username": "momentum-username",
-  "password": "Momentum API key"
+  "password": "replace-with-api-key"
 }
 ```
 
-For `Hashicorp Vault`, the secret value must contain the same JSON object. The task uses the same Infisical environment variables as `RemoteFS`: `INFISICAL_ADDR`, `INFISICAL_CLIENT_ID`, `INFISICAL_CLIENT_SECRET`, `INFISICAL_PROJECT`, and `INFISICAL_ENVIRONMENT`.
+`TimeoutSeconds` defaults to `100`, with an allowed range of `1`–`3600`. It is the overall Fetch timeout covering secret lookup, Momentum authentication, and GraphQL retrieval, not a fresh timeout for each request. Convert supports cancellation but has no separate timeout setting.
 
-### Convert GraphQL Result
+All endpoints require HTTPS and normal certificate validation; redirects are not followed. Install the appropriate private CA on the Frends agent if required. The task uses pooled HTTP connections, does not share cookies, and does not retry HTTP requests automatically. JSON configuration and password fields are marked sensitive in the task UI; also configure process logging so fetched invoice/customer data and output files are not exposed unnecessarily.
 
-`Frends.HIT.MomentumToRaindance.Main.ConvertGraphQlResult`
+### Infisical configuration
 
-Accepts a UTF-8 byte stream containing a Momentum GraphQL JSON response and returns:
+Set these environment variables on every Frends agent that may run the process:
 
-- `ResultFile`: Raindance fixed-width string. Persist to disk/SFTP using ISO-8859-1/Latin-1 encoding.
-- `NodeCount`: number of Momentum nodes converted.
+| Variable | Purpose |
+| --- | --- |
+| `INFISICAL_ADDR` | HTTPS Infisical base URL, without query or fragment. |
+| `INFISICAL_CLIENT_ID` | Universal Auth client ID. |
+| `INFISICAL_CLIENT_SECRET` | Universal Auth client secret. |
+| `INFISICAL_PROJECT` | Workspace/project ID used by the secrets API. |
+| `INFISICAL_ENVIRONMENT` | Infisical environment slug. |
 
-## Build
+`VaultPath` is a secret path such as `/integrations/momentum/config`. Its last segment is the secret name. A bare name addresses a secret in `/`. For compatibility with the reference RemoteFS module, dots in the directory portion are replaced with underscores; the secret name itself is unchanged. URI components are encoded before sending the request. The identity needs permission to authenticate and read that specific secret.
 
-```bash
-dotnet build Frends.HIT.MomentumToRaindance.sln
-dotnet pack --configuration Release --include-source --output . Frends.HIT.MomentumToRaindance/Frends.HIT.MomentumToRaindance.csproj
-```
+## Generate files locally
 
-## Generate a file locally
-
-Put the Momentum JSON configuration in `.env`, then run:
-
-```bash
-./generate-raindance.sh ./out/raindance.txt
-```
-
-The wrapper fetches all nodes after local ID `0`, converts them with the task package, and writes the output using ISO-8859-1/Latin-1. To fetch only newer nodes:
+Requires the .NET 10 SDK and Bash. Put the JSON connection object above in `.env` at the repository root. Despite its name, this file is **JSON, not `KEY=value` dotenv syntax**. Keep it private; `.env` and the `out/` directory are Git-ignored.
 
 ```bash
 ./generate-raindance.sh ./out/raindance.txt --last-local-id 123
 ```
 
-To save the exact prettified Momentum response used for the conversion as UTF-8 JSON:
+To also save the prettified response used for this conversion:
 
 ```bash
-./generate-raindance.sh ./out/raindance.txt --json-output ./out/momentum.json
+./generate-raindance.sh ./out/raindance.txt \
+  --last-local-id 123 \
+  --json-output ./out/momentum.json
 ```
 
-Run `./generate-raindance.sh --help` for all options.
+Use `--env /path/to/config.json` for another configuration file, or `--help` for all options. Configuration and output paths must be distinct and must not contain symbolic links. JSON dumps are UTF-8; Raindance files are ISO-8859-1/Latin-1. A JSON dump contains customer and invoice data: restrict access, retain it only as needed, and do not commit it.
 
-The GraphQL query is embedded into the DLL as a resource; no query file has to be deployed beside the package.
+The wrapper prints the returned checkpoint but does not save it for subsequent runs; supply `--last-local-id` deliberately each time. On no work it does not write a Raindance file; an existing file at that path is left untouched, so use a fresh output filename or check the console result before sending anything. With `--json-output`, the fetched JSON is written before conversion and can remain available for diagnosis even if conversion fails.
 
-## Output Notes
+Opening the Raindance file as UTF-8 can make Swedish characters appear broken even when its bytes are correct. Use an editor that supports ISO-8859-1, and avoid resaving the file with a different encoding.
 
-The Raindance output follows the mapping spreadsheet:
+## Build and test
 
-```text
-S customer record
-H invoice header
-R invoice row
-K accounting row
+Build the Frends library separately when only a .NET 8 SDK is available:
+
+```bash
+dotnet build Frends.HIT.MomentumToRaindance/Frends.HIT.MomentumToRaindance.csproj --configuration Release
 ```
 
-The H-record invoice-number field at positions 200–209 is intentionally blank so Raindance assigns the invoice number. Every invoiced row is followed by a text-only R record containing its invoice period as `YYYY-MM` or `YYYY-MM - YYYY-MM`. The accounting K record continues to use the compact `YYMM` or `YYMM YYMM` representation at positions 175–184.
+With the .NET 10 SDK available for the local tool, build the full solution and run its tests:
 
-The Raindance byte stream is ISO-8859-1/Latin-1 encoded. If the file is opened as UTF-8 in an editor, Swedish characters will appear broken even though the bytes are correct for the target format.
+```bash
+dotnet build Frends.HIT.MomentumToRaindance.sln --configuration Release
+dotnet test Frends.HIT.MomentumToRaindance.sln --configuration Release
+```
+
+Tests target .NET 8 and permit major-version runtime roll-forward for local machines that only have .NET 10 installed. Run them with the .NET 8 runtime available in release validation to exercise the deployed runtime as well. The automated tests use synthetic data and stubbed HTTP responses, not production credentials.
+
+Pack only the task project:
+
+```bash
+dotnet pack Frends.HIT.MomentumToRaindance/Frends.HIT.MomentumToRaindance.csproj \
+  --configuration Release --output ./artifacts
+```
+
+The package includes the .NET 8 task assembly, XML API documentation, and root `FrendsTaskMetadata.json`. The GraphQL query is embedded in the DLL; no external query file, `.env`, or local CLI is required on the agent. Metadata lists exactly the two task entry points described above. Public signatures, property tabs, masked credential fields, and XML documentation follow the [Frends custom-task conventions](https://docs.frends.com/guides/development/creating-custom-tasks).
+
+## Further documentation
+
+- [Production audit results](docs/production-audit.md): fixes, verification evidence, and remaining deployment gates.
+- [Raindance records and Momentum field mapping](docs/raindance-format.md): positions, debit/credit, period text, limits, and intentionally unused fields.
+- [Production operations and recovery](docs/operations.md): deployment checks, checkpoint examples, retries, security, and failure handling.
+
+The converter implements this integration's agreed layout, not every variant of Raindance or every Momentum event type. Automated tests complement, but do not replace, acceptance testing in the actual Raindance import configuration.

@@ -30,6 +30,11 @@ try
     }
 
     var envPath = Path.GetFullPath(options.EnvPath);
+    var outputPath = Path.GetFullPath(options.OutputPath);
+    var jsonOutputPath = options.JsonOutputPath is null
+        ? null
+        : Path.GetFullPath(options.JsonOutputPath);
+    ValidateOutputPaths(envPath, outputPath, jsonOutputPath);
     if (!File.Exists(envPath))
     {
         Console.Error.WriteLine($"Configuration file not found: {envPath}");
@@ -48,16 +53,6 @@ try
         connection,
         new FetchInput { LastLocalId = options.LastLocalId });
 
-    var outputPath = Path.GetFullPath(options.OutputPath);
-    var jsonOutputPath = options.JsonOutputPath is null
-        ? null
-        : Path.GetFullPath(options.JsonOutputPath);
-
-    if (jsonOutputPath is not null && string.Equals(outputPath, jsonOutputPath, StringComparison.Ordinal))
-    {
-        throw new ArgumentException("OUTPUT_FILE and --json-output must refer to different files.");
-    }
-
     if (jsonOutputPath is not null)
     {
         EnsureParentDirectory(jsonOutputPath);
@@ -66,13 +61,21 @@ try
     }
 
     var converted = Main.ConvertGraphQlResult(
-        new ConvertInput { GraphQlResult = fetched.ResultFile });
+        new ConvertInput { GraphQlResult = fetched.ResultFile, LastLocalId = fetched.LastLocalId });
+
+    if (converted.NodeCount == 0)
+    {
+        Console.WriteLine($"No new invoice rows. No Raindance file written; local ID remains {converted.LastLocalId}.");
+        return 0;
+    }
 
     EnsureParentDirectory(outputPath);
-    var outputBytes = Encoding.Latin1.GetBytes(converted.ResultFile);
+    var latin1 = Encoding.GetEncoding("iso-8859-1", EncoderFallback.ExceptionFallback, DecoderFallback.ExceptionFallback);
+    var outputBytes = latin1.GetBytes(converted.ResultFile);
     await File.WriteAllBytesAsync(outputPath, outputBytes);
 
     Console.WriteLine($"Wrote {converted.NodeCount} node(s), {outputBytes.Length} bytes: {outputPath}");
+    Console.WriteLine($"Next local ID: {converted.LastLocalId}. Persist only after successful delivery/import according to your process.");
     return 0;
 }
 catch (ArgumentException exception)
@@ -142,6 +145,29 @@ static void EnsureParentDirectory(string path)
     if (!string.IsNullOrEmpty(directory))
     {
         Directory.CreateDirectory(directory);
+    }
+}
+
+static void ValidateOutputPaths(string envPath, string outputPath, string? jsonOutputPath)
+{
+    // Conservative on case-sensitive systems too: never risk replacing the credentials or
+    // replacing a JSON dump with invoice text because of a filename typo.
+    var paths = new[] { envPath, outputPath, jsonOutputPath }.OfType<string>().ToArray();
+    if (paths.Distinct(StringComparer.OrdinalIgnoreCase).Count() != paths.Length)
+        throw new ArgumentException("Configuration, OUTPUT_FILE and --json-output must refer to different files.");
+
+    foreach (var path in paths)
+    {
+        for (FileSystemInfo? entry = new FileInfo(path); entry is not null; entry = entry switch
+        {
+            FileInfo file => file.Directory,
+            DirectoryInfo directory => directory.Parent,
+            _ => null
+        })
+        {
+            if (entry.LinkTarget is not null)
+                throw new ArgumentException("Use direct file paths without symbolic links for configuration and outputs.");
+        }
     }
 }
 
