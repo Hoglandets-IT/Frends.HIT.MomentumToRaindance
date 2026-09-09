@@ -2,7 +2,7 @@
 
 This describes the layout emitted by `RaindanceWriter`, not a general Raindance format specification. Positions are **one-based and inclusive**. Every record is space-padded to its stated length; its following CRLF is not included in that length. All positions not listed below remain spaces. ISO-8859-1/Latin-1 encoding makes each supported character one byte.
 
-`ConversionResult.ResultFile` returns these records as an already encoded `byte[]` for RAW file delivery, not a string. Within each `data.ledgerNoteAccountingsSync.nodes[]`, source rows are visited in their supplied ledger/row order. One emitted invoice has this structure:
+`ConversionResult.ResultFile` returns these records as an already encoded `byte[]` for RAW file delivery, not a string. Production Convert reserves invoice identities in PostgreSQL before returning bytes; only newly admitted invoices are present. `Filename` remains a separate string and is not part of the file contents. Within each `data.ledgerNoteAccountingsSync.nodes[]`, source rows are visited in their supplied ledger/row order. One emitted invoice has this structure:
 
 ```text
 S customer                                      305 characters
@@ -28,6 +28,14 @@ In the tables, `node` is one source node, `row` is one entry in `node.ledgers[].
 - The invoice period is `node.ledgerNote.refersToPeriodDisplayName`. It is reused after every included invoice row in that node and in each associated K period field. It is not read from pricing messages, accounting dates, or ledger status dates.
 - Revenue accounting records are those whose parsed account (`Konto`) starts with `3`. Other accounts are not exported as K records. Revenue records are grouped by the complete `accountDistributionCoding` string within each source row; zero-sum groups are omitted.
 - A node with no included rows emits neither S nor H.
+
+### Stable identity and delivery tracking
+
+Before output is admitted, Convert requires a stable `node.ledgerNote.id` for every invoice with included rows. The permanent database identity is `(InvoiceTrackingConnection.SourceSystem, ledgerNote.id)`. Neither sync `localId`, invoice/ledger-note numbers, nor the H customer identity can replace it. Duplicate stable identities in one candidate batch fail even if their sync local IDs differ. Both new and previously recorded candidate invoices must pass format validation.
+
+The database stores a SHA-256 over each invoice's complete encoded S/H/R/K bytes to detect changes when a recorded identity reappears. The complete output file has a separate `ConversionResult.ContentSha256` hash. These hashes exclude the filename, local ID and raw JSON fields not rendered into the file. An already-recorded identity with changed rendered bytes fails rather than creating another invoice. Historical seed records have no rendered hash and suppress identity only. A pending reservation blocks the entire source, not just a matching invoice.
+
+Stable Momentum invoice IDs and tracking metadata are **not inserted into any unused Raindance field**. In particular, H Fakturanummer stays blank. Old Raindance files therefore cannot establish the historical identity baseline by themselves. See [production operations](operations.md) for historical seeding, reservation/confirmation semantics and failure recovery. The local dumping CLI renders this layout for diagnostic previews without reservation; its files must not be delivered.
 
 ## S — customer, 305 characters
 
