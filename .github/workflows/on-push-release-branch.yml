@@ -11,6 +11,26 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: momentum_tracking
+          POSTGRES_USER: momentum_admin
+          POSTGRES_PASSWORD: momentum_ci_only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U momentum_admin -d momentum_tracking"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: 5432
+      PGDATABASE: momentum_tracking
+      PGUSER: momentum_admin
+      PGPASSWORD: momentum_ci_only
+      MOMENTUM_TEST_POSTGRES: 'Host=127.0.0.1;Port=5432;Database=momentum_tracking;Username=momentum_admin;Password=momentum_ci_only;SSL Mode=Disable'
+      MOMENTUM_TEST_POSTGRES_RUNTIME: 'Host=127.0.0.1;Port=5432;Database=momentum_tracking;Username=momentum_tracking_runtime;Password=momentum_runtime_ci_only;SSL Mode=Disable'
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -27,6 +47,13 @@ jobs:
 
       - name: Build and test
         run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+          database/migrate.sh
+          database/migrate.sh
+          psql -X -v ON_ERROR_STOP=1 -c "CREATE ROLE momentum_tracking_runtime LOGIN PASSWORD 'momentum_runtime_ci_only'"
+          database/operator.sh grant-runtime momentum_tracking_runtime
+          psql -X -v ON_ERROR_STOP=1 -f database/tests/runtime-privileges.sql
           dotnet restore Frends.HIT.MomentumToRaindance.sln
           dotnet build Frends.HIT.MomentumToRaindance.sln --configuration Release --no-restore --warnaserror
           dotnet test tests/Frends.HIT.MomentumToRaindance.Tests/Frends.HIT.MomentumToRaindance.Tests.csproj --configuration Release --no-build
