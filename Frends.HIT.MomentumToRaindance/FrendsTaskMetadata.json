@@ -5,6 +5,9 @@
       },
       {
         "TaskMethod": "Frends.HIT.MomentumToRaindance.Main.ConvertGraphQlResult"
+      },
+      {
+        "TaskMethod": "Frends.HIT.MomentumToRaindance.Main.ConfirmInvoiceDelivery"
       }
     ]
 }

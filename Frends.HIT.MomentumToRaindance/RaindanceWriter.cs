@@ -63,7 +63,7 @@ internal static class RaindanceWriter
         }
 
         var text = builder.ToString();
-        // Validate even the string result: Frends persists it separately using Latin-1.
+        // Validate text before encoding so unsupported characters cannot silently be replaced.
         _ = SwedishIsoEncoding.GetByteCount(text);
         cancellationToken.ThrowIfCancellationRequested();
         return text;

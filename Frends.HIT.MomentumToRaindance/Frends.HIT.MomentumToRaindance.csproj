@@ -6,7 +6,7 @@
         <Description>Frends task for converting Momentum ledger note accountings to Raindance import files</Description>
         
         <!--- The version of the task. Can remain at 0.0.1, we specify this manually in the build process -->
-        <Version>1.0.2</Version>
+        <Version>2.0.0</Version>
         
         <!-- The name of the author -->
         <authors>Höglandets IT</authors>
@@ -33,6 +33,7 @@
     <!-- The required .NET packages to run this task -->
     <ItemGroup>
         <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+        <PackageReference Include="Npgsql" Version="8.0.9" />
         <PackageReference Include="System.ComponentModel.Annotations" Version="5.0.0" />
     </ItemGroup>
         
@@ -46,5 +47,6 @@
     <ItemGroup>
         <EmbeddedResource Include="Queries\*.graphql" />
         <InternalsVisibleTo Include="Frends.HIT.MomentumToRaindance.Tests" />
+        <InternalsVisibleTo Include="Frends.HIT.MomentumToRaindance.Local" />
     </ItemGroup>
 </Project>

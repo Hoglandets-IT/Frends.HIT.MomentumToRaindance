@@ -5,7 +5,7 @@ using Newtonsoft.Json;
 namespace Frends.HIT.MomentumToRaindance;
 
 /// <summary>
-/// Source for Momentum API connection configuration.
+/// Source for Momentum API or invoice-tracking database connection configuration.
 /// </summary>
 public enum MomentumConfigurationSource
 {
@@ -22,7 +22,7 @@ public enum MomentumConfigurationSource
     HcpVault,
 
     /// <summary>
-    /// Manual Momentum connection input fields.
+    /// Manual connection input fields.
     /// </summary>
     [Display(Name = "Manual Config")]
     Manual
@@ -278,15 +278,25 @@ public class FetchResult
 /// </summary>
 public class ConversionResult
 {
+    /// <summary>Durable PostgreSQL reservation ID. Empty when no file is emitted. Pass to Confirm Invoice Delivery after writing once.</summary>
+    public string DeliveryId { get; set; } = "";
+
+    /// <summary>SHA-256 of the exact ResultFile bytes, lowercase hexadecimal. Empty when no file is emitted.</summary>
+    public string ContentSha256 { get; set; } = "";
+
+    /// <summary>Invoice identities already present in confirmed or historical database records.</summary>
+    public int SkippedInvoiceCount { get; set; }
+
     /// <summary>
-    /// Suggested output filename: 300K24_yyyyMMdd_HHmmss.txt, using the Frends agent's local time.
-    /// Generated once per conversion result. Skip file delivery when NodeCount is zero.
+    /// Reserved output filename: 300K24_yyyyMMdd_HHmmss.txt. Starts at the agent's local time;
+    /// database collisions advance to the next free second. Empty when NodeCount is zero.
     /// </summary>
     public string Filename { get; set; } = "";
 
     /// <summary>
-    /// Checkpoint to persist after successful file delivery. Unchanged on no work; otherwise the
-    /// highest handled local ID. A failed batch throws and returns no advanced checkpoint.
+    /// Highest handled local ID. Empty/stale/rounding-only input preserves the checkpoint;
+    /// skipping already recorded invoice identities can advance it without a new file.
+    /// For a new delivery persist only after Confirm Invoice Delivery succeeds.
     /// </summary>
     public int LastLocalId { get; set; }
 

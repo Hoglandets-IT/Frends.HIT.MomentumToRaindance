@@ -35,8 +35,8 @@ public sealed class ConversionTests
     public void Reprocessing_after_saved_checkpoint_emits_nothing()
     {
         var payload = Fixture.Envelope(Fixture.Node(3), Fixture.Node(8));
-        var first = Main.ConvertGraphQlResult(new ConvertInput { GraphQlResult = payload }, TestContext.Current.CancellationToken);
-        var second = Main.ConvertGraphQlResult(new ConvertInput { GraphQlResult = payload, LastLocalId = first.LastLocalId },
+        var first = Main.ConvertCore(new ConvertInput { GraphQlResult = payload }, TestContext.Current.CancellationToken);
+        var second = Main.ConvertCore(new ConvertInput { GraphQlResult = payload, LastLocalId = first.LastLocalId },
             TestContext.Current.CancellationToken);
         Assert.Equal(8, first.LastLocalId);
         Assert.Equal(2, first.NodeCount);
@@ -103,7 +103,7 @@ public sealed class ConversionTests
     [InlineData("{\"data\":{\"ledgerNoteAccountingsSync\":{\"nodes\":[null]}}}")]
     public void Incomplete_response_is_not_treated_as_successful_empty_response(string payload)
     {
-        Assert.Throws<InvalidOperationException>(() => Main.ConvertGraphQlResult(new ConvertInput
+        Assert.Throws<InvalidOperationException>(() => Main.ConvertCore(new ConvertInput
         {
             LastLocalId = 42,
             GraphQlResult = payload
@@ -115,7 +115,7 @@ public sealed class ConversionTests
     {
         var payload = JObject.Parse(Fixture.Envelope(Fixture.Node(2)));
         payload["errors"] = new JArray(new JObject { ["message"] = "Synthetic upstream failure" });
-        Assert.Throws<InvalidOperationException>(() => Main.ConvertGraphQlResult(new ConvertInput
+        Assert.Throws<InvalidOperationException>(() => Main.ConvertCore(new ConvertInput
         {
             GraphQlResult = payload.ToString()
         }, TestContext.Current.CancellationToken));
@@ -203,7 +203,7 @@ public sealed class ConversionTests
     {
         using var cancellation = new CancellationTokenSource();
         cancellation.Cancel();
-        Assert.ThrowsAny<OperationCanceledException>(() => Main.ConvertGraphQlResult(
+        Assert.ThrowsAny<OperationCanceledException>(() => Main.ConvertCore(
             new ConvertInput { GraphQlResult = Fixture.Envelope(Fixture.Node()) }, cancellation.Token));
     }
 }

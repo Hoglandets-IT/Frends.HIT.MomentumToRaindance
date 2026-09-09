@@ -60,17 +60,31 @@ public class Main
     }
 
     /// <summary>
-    /// Convert newer Momentum nodes to Raindance fixed-width bytes. The whole batch must succeed.
+    /// Reserve previously unseen invoices in PostgreSQL and return Raindance file bytes once.
     /// </summary>
     /// <param name="input">Existing GraphQL JSON and the last delivered checkpoint.</param>
+    /// <param name="database">Required durable invoice history and source identity.</param>
     /// <param name="cancellationToken">Cancellation from the Frends process.</param>
     /// <returns>Latin-1-encoded CRLF file bytes and a checkpoint to persist only after successful file delivery.</returns>
     [DisplayName("Convert GraphQL Result")]
-    public static ConversionResult ConvertGraphQlResult(
+    public static Task<ConversionResult> ConvertGraphQlResult(
         [PropertyTab] ConvertInput input,
-        CancellationToken cancellationToken = default) => ConvertCore(input, cancellationToken);
+        [PropertyTab] InvoiceTrackingConnection database,
+        CancellationToken cancellationToken = default) => InvoiceTracking.PrepareAsync(input, database, cancellationToken);
 
-    internal static ConversionResult ConvertCore(ConvertInput input, CancellationToken cancellationToken)
+    /// <summary>Record successful external file delivery. Call only after Write File succeeds; never retry writing a reserved file.</summary>
+    /// <param name="input">Reservation fingerprint and durable delivery evidence.</param>
+    /// <param name="database">Same database and SourceSystem used by conversion.</param>
+    /// <param name="cancellationToken">Cancellation from Frends.</param>
+    /// <returns>Confirmed delivery and its checkpoint. This does not confirm Raindance import.</returns>
+    [DisplayName("Confirm Invoice Delivery")]
+    public static Task<DeliveryResult> ConfirmInvoiceDelivery(
+        [PropertyTab] DeliveryConfirmation input,
+        [PropertyTab] InvoiceTrackingConnection database,
+        CancellationToken cancellationToken = default) => InvoiceTracking.ConfirmAsync(input, database, cancellationToken);
+
+    // Untracked rendering is internal and used only for local previews/format tests.
+    internal static ConversionResult ConvertCore(ConvertInput input, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(input);
         var inputCheckpoint = ParseCheckpoint(input.LastLocalId);
@@ -135,7 +149,7 @@ public class Main
             : throw new ArgumentException("LastLocalId must be an integer or numeric string between 0 and 2147483647.", nameof(FetchInput.LastLocalId));
     }
 
-    private static void ValidateNode(LedgerNoteAccountingNode node)
+    internal static void ValidateNode(LedgerNoteAccountingNode node)
     {
         EnsureCreated(node.ChangeType);
         if (node.LedgerNote is null || node.Ledgers is null)

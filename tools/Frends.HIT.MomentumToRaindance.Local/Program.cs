@@ -6,6 +6,8 @@ const string usage = """
 Usage:
   ./generate-raindance.sh OUTPUT_FILE [--json-output FILE] [--last-local-id ID]
 
+Diagnostic preview only: output is NOT reserved in the invoice database. Never deliver preview files to Raindance.
+
 Options:
   --env PATH             Read Momentum JSON configuration from PATH (default: .env)
   --json-output FILE     Also write the prettified Momentum response as UTF-8 JSON
@@ -48,6 +50,7 @@ try
         JsonConfiguration = configurationJson
     };
 
+    Console.WriteLine("DIAGNOSTIC PREVIEW — no duplicate protection. Do not deliver this output to Raindance.");
     Console.WriteLine($"Fetching Momentum nodes after local ID {options.LastLocalId}...");
     var fetched = await Main.FetchLedgerNoteAccountings(
         connection,
@@ -60,7 +63,7 @@ try
         Console.WriteLine($"Wrote prettified Momentum JSON: {jsonOutputPath}");
     }
 
-    var converted = Main.ConvertGraphQlResult(
+    var converted = Main.ConvertCore(
         new ConvertInput { GraphQlResult = fetched.ResultFile, LastLocalId = fetched.LastLocalId });
 
     if (converted.NodeCount == 0)
@@ -74,7 +77,7 @@ try
     await File.WriteAllBytesAsync(outputPath, outputBytes);
 
     Console.WriteLine($"Wrote {converted.NodeCount} node(s), {outputBytes.Length} bytes: {outputPath}");
-    Console.WriteLine($"Next local ID: {converted.LastLocalId}. Persist only after successful delivery/import according to your process.");
+    Console.WriteLine($"Preview local ID: {converted.LastLocalId}. Do not update a production checkpoint from this diagnostic run.");
     return 0;
 }
 catch (ArgumentException exception)

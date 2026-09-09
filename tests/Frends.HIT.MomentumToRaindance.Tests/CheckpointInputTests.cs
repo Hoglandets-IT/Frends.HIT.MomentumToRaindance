@@ -62,7 +62,7 @@ public sealed class CheckpointInputTests
         await Assert.ThrowsAsync<ArgumentException>(() => Main.FetchCoreAsync(TransportTests.Connection(),
             new FetchInput { LastLocalId = value }, TestContext.Current.CancellationToken, client));
         Assert.Equal(0, calls);
-        Assert.Throws<ArgumentException>(() => Main.ConvertGraphQlResult(new ConvertInput
+        Assert.Throws<ArgumentException>(() => Main.ConvertCore(new ConvertInput
         {
             LastLocalId = value,
             GraphQlResult = Fixture.Envelope(Fixture.Node())
@@ -72,7 +72,7 @@ public sealed class CheckpointInputTests
     [Fact]
     public void Conversion_normalizes_shared_state_checkpoint_for_filtering_and_passthrough()
     {
-        var converted = Main.ConvertGraphQlResult(new ConvertInput
+        var converted = Main.ConvertCore(new ConvertInput
         {
             LastLocalId = "5",
             GraphQlResult = Fixture.Envelope(Fixture.Node(5), Fixture.Node(6))
@@ -80,7 +80,7 @@ public sealed class CheckpointInputTests
         Assert.Equal(1, converted.NodeCount);
         Assert.Equal(6, converted.LastLocalId);
 
-        var noWork = Main.ConvertGraphQlResult(new ConvertInput
+        var noWork = Main.ConvertCore(new ConvertInput
         {
             LastLocalId = "6",
             GraphQlResult = Fixture.Envelope(Fixture.Node(5), Fixture.Node(6))

@@ -84,7 +84,7 @@ internal static class Fixture
     }.ToString(Formatting.None);
 
     public static ConversionResult Convert(int lastLocalId = 0, params JObject[] nodes) =>
-        Main.ConvertGraphQlResult(new ConvertInput
+        Main.ConvertCore(new ConvertInput
         {
             LastLocalId = lastLocalId,
             GraphQlResult = Envelope(nodes)
