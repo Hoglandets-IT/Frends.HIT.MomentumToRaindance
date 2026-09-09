@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Test-only client adapter exercises the production migration path without host psql.
+# This is only put on PATH by migration-runner.sh, never by application scripts.
+set -euo pipefail
+exec docker compose -f "${MOMENTUM_DATABASE_TEST_COMPOSE:?Test compose path must be explicit}" \
+    exec -T postgres psql --username=momentum_admin --dbname="${PGDATABASE:?Test database must be explicit}" "$@"

@@ -1,0 +1,5 @@
+# Migration checksums must identify the same immutable bytes on every OS.
+database/**/*.sql text eol=lf
+# PS 5.1 scripts intentionally use ASCII source; data is explicitly UTF-8.
+database/**/*.ps1 text eol=lf
+database/**/*.sh text eol=lf
