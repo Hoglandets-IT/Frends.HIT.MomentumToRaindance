@@ -1,0 +1,73 @@
+name: Windows database administration
+
+on:
+  push:
+    branches: ['main']
+  pull_request:
+    branches: ['main']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native-windows:
+    name: Native Windows / ${{ matrix.shell }}
+    runs-on: windows-2025
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        shell: [powershell, pwsh]
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: 5432
+      PGDATABASE: postgres
+      PGUSER: postgres
+      # Public, disposable GitHub-hosted runner default; never production credentials.
+      PGPASSWORD: root
+      PGSSLMODE: disable
+      PGCLIENTENCODING: UTF8
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Start the runner's native PostgreSQL service
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # Official runner inventory: actions/runner-images, Windows2025-Readme.md.
+          # Native PostgreSQL is installed but its Windows service starts disabled.
+          $service = @(Get-Service -Name 'postgresql*')
+          if ($service.Count -ne 1) { throw 'Expected exactly one preinstalled PostgreSQL Windows service.' }
+          Set-Service -Name $service[0].Name -StartupType Manual
+          Start-Service -Name $service[0].Name
+          $psql = Join-Path $env:PGBIN 'psql.exe'
+          if (-not (Test-Path -LiteralPath $psql -PathType Leaf)) { throw 'Native psql.exe was not found in PGBIN.' }
+          $ready = $false
+          for ($attempt = 0; $attempt -lt 20; $attempt++) {
+            & (Join-Path $env:PGBIN 'pg_isready.exe') -q
+            if ($LASTEXITCODE -eq 0) { $ready = $true; break }
+            Start-Sleep -Seconds 1
+          }
+          if (-not $ready) { throw 'The native PostgreSQL service did not become ready.' }
+          & $psql -X --no-password --set=ON_ERROR_STOP=1 -c 'SELECT version();'
+          if ($LASTEXITCODE -ne 0) { throw 'The native PostgreSQL service did not accept the test connection.' }
+      - name: Exercise migration and administration scripts without WSL
+        shell: ${{ matrix.shell }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ('${{ matrix.shell }}' -eq 'powershell' -and $PSVersionTable.PSVersion.Major -ne 5) {
+            throw 'The compatibility job must execute Windows PowerShell 5.1.'
+          }
+          $env:TEMP = $env:RUNNER_TEMP
+          $env:TMP = $env:RUNNER_TEMP
+          & .\database\tests\windows.ps1 -PsqlPath (Join-Path $env:PGBIN 'psql.exe') -AllowCreateTestDatabase
+      - name: Preserve synthetic test logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-database-${{ matrix.shell }}
+          path: '${{ runner.temp }}/momentum windows tests */*.log'
+          if-no-files-found: ignore
+          retention-days: 7
