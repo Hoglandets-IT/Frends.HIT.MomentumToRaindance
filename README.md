@@ -141,11 +141,13 @@ Configure this property tab on Fetch, Convert, and Confirm:
 
 ```json
 {
-  "connectionString": "Host=postgres.example.invalid;Port=5432;Database=momentum_tracking;Username=momentum_runtime;Password=replace-with-secret;SSL Mode=VerifyFull"
+  "connectionString": "Host=postgres.example.invalid;Port=5432;Database=momentum_tracking;Username=momentum_runtime;Password=replace-with-secret;SSL Mode=Require"
 }
 ```
 
-Production connections require `SSL Mode=VerifyFull` with trusted certificates. `SSL Mode=Disable` is accepted only for `localhost`, `127.0.0.1`, or `::1` development. Follow the [first-time database setup](database/README.md) using your existing database and login. The same login is supported for setup and Frends; a separate restricted login is optional hardening. An object-owner login can alter database safeguards, so restrict access to its credentials. Ambient transaction enlistment is disabled so a later Frends rollback cannot undo a reservation after bytes have escaped; the task also sets synchronous commit on its transactions. Sensitive database error details and parameter logging are disabled.
+Remote PostgreSQL connections accept an explicit `SSL Mode=Require`, `VerifyCA`, or `VerifyFull`. `Require` encrypts the connection without validating the server certificate. `VerifyCA` validates the certificate chain; `VerifyFull` also verifies the hostname. Choose the mode approved for the environment; the task does not change it automatically. `Allow`, `Prefer`, and an omitted mode are rejected. `Disable` is accepted only for `localhost`, `127.0.0.1`, or `::1` development.
+
+Follow the [first-time database setup](database/README.md) using your existing database and login. The same login is supported for setup and Frends; a separate restricted login is optional hardening. An object-owner login can alter database safeguards, so restrict access to its credentials. Ambient transaction enlistment is disabled so a later Frends rollback cannot undo a reservation after bytes have escaped; the task also sets synchronous commit on its transactions. Sensitive database error details and parameter logging are disabled.
 
 ### HcpVault / Infisical
 
@@ -159,7 +161,7 @@ Set these on each Frends agent that can execute the tasks:
 | `INFISICAL_PROJECT` | Workspace/project ID. |
 | `INFISICAL_ENVIRONMENT` | Environment slug. |
 
-Use separate API and database secret paths. `VaultPath`'s last segment is the secret name; a bare name addresses `/`. Dots in the directory portion are replaced with underscores for compatibility with the existing convention; the secret name is unchanged. URI components are encoded. Give the identity read access only to the required secrets, and install private CA trust without certificate bypasses.
+Use separate API and database secret paths. `VaultPath`'s last segment is the secret name; a bare name addresses `/`. Dots in the directory portion are replaced with underscores for compatibility with the existing convention; the secret name is unchanged. URI components are encoded. Give the identity read access only to the required secrets. API and Vault HTTPS connections still require normal certificate validation; install private CA trust where needed. PostgreSQL uses the explicit SSL mode described above.
 
 ## Local development and diagnostic previews
 

@@ -26,7 +26,7 @@ public sealed class InvoiceTrackingConnection
     [UIHint(nameof(ConfigurationSource), "", MomentumConfigurationSource.Json)]
     public string JsonConfiguration { get; set; } = "";
 
-    /// <summary>Npgsql connection string. Use SSL Mode=VerifyFull for production; local development may disable TLS.</summary>
+    /// <summary>Npgsql connection string. Remote connections require SSL Mode=Require, VerifyCA or VerifyFull; loopback development may disable TLS.</summary>
     [DefaultValue("")]
     [PasswordPropertyText]
     [DisplayFormat(DataFormatString = "Expression")]
@@ -85,7 +85,8 @@ public sealed class InvoiceTrackingConnection
                 || string.IsNullOrWhiteSpace(builder.Username))
                 throw new ArgumentException();
             var local = builder.Host is "localhost" or "127.0.0.1" or "::1";
-            if (builder.SslMode != SslMode.VerifyFull && !(local && builder.SslMode == SslMode.Disable))
+            var requiresTls = builder.SslMode is SslMode.Require or SslMode.VerifyCA or SslMode.VerifyFull;
+            if (!requiresTls && !(local && builder.SslMode == SslMode.Disable))
                 throw new ArgumentException();
             // Never allow ambient Frends transactions to roll back a claim after bytes were handed out.
             builder.Enlist = false;
@@ -101,7 +102,7 @@ public sealed class InvoiceTrackingConnection
         catch (Exception ex) when (ex is ArgumentException or FormatException or OverflowException)
         {
             // Provider/parser exception messages can contain a password or entire connection string.
-            throw new ArgumentException("Invalid PostgreSQL configuration. Supply Host, Database, Username and SSL Mode=VerifyFull (or Disable for loopback development).");
+            throw new ArgumentException("Invalid PostgreSQL configuration. Supply Host, Database, Username and SSL Mode=Require, VerifyCA or VerifyFull (or Disable for loopback development).");
         }
     }
 

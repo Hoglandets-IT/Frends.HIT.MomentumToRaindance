@@ -75,17 +75,60 @@ public sealed class InvoiceTrackingTests
         await Assert.ThrowsAnyAsync<ArgumentException>(() => connection.ResolveAsync(TestContext.Current.CancellationToken));
     }
 
-    [Fact]
-    public async Task Remote_database_requires_verified_tls()
+    [Theory]
+    [InlineData(MomentumConfigurationSource.Manual, SslMode.Require)]
+    [InlineData(MomentumConfigurationSource.Json, SslMode.Require)]
+    [InlineData(MomentumConfigurationSource.Manual, SslMode.VerifyCA)]
+    [InlineData(MomentumConfigurationSource.Json, SslMode.VerifyCA)]
+    [InlineData(MomentumConfigurationSource.Manual, SslMode.VerifyFull)]
+    [InlineData(MomentumConfigurationSource.Json, SslMode.VerifyFull)]
+    public async Task Remote_database_accepts_explicit_tls_modes_without_changing_them(MomentumConfigurationSource source, SslMode mode)
+    {
+        var raw = $"Host=database.example.invalid;Database=synthetic;Username=synthetic;Password=synthetic-secret;SSL Mode={mode}";
+        var connection = new InvoiceTrackingConnection
+        {
+            ConfigurationSource = source,
+            SourceSystem = "synthetic-source",
+            ConnectionString = raw,
+            JsonConfiguration = JsonConvert.SerializeObject(new { connectionString = raw })
+        };
+        var resolved = new NpgsqlConnectionStringBuilder(await connection.ResolveAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(mode, resolved.SslMode);
+        Assert.Equal("database.example.invalid", resolved.Host);
+    }
+
+    [Theory]
+    [InlineData(";SSL Mode=Disable")]
+    [InlineData(";SSL Mode=Allow")]
+    [InlineData(";SSL Mode=Prefer")]
+    [InlineData("")]
+    public async Task Remote_database_rejects_plaintext_and_modes_allowing_plaintext_fallback(string tlsOptions)
     {
         var connection = new InvoiceTrackingConnection
         {
             ConfigurationSource = MomentumConfigurationSource.Manual,
             SourceSystem = "synthetic-source",
-            ConnectionString = "Host=database.example.invalid;Database=synthetic;Username=synthetic;Password=synthetic-secret;SSL Mode=Disable"
+            ConnectionString = "Host=database.example.invalid;Database=synthetic;Username=synthetic;Password=synthetic-secret" + tlsOptions
         };
         var exception = await Assert.ThrowsAnyAsync<ArgumentException>(() => connection.ResolveAsync(TestContext.Current.CancellationToken));
         Assert.DoesNotContain("synthetic-secret", exception.ToString());
+        Assert.Contains("SSL Mode=Require, VerifyCA or VerifyFull", exception.Message);
+    }
+
+    [Theory]
+    [InlineData("localhost")]
+    [InlineData("127.0.0.1")]
+    [InlineData("::1")]
+    public async Task Loopback_development_still_allows_explicit_plaintext(string host)
+    {
+        var connection = new InvoiceTrackingConnection
+        {
+            ConfigurationSource = MomentumConfigurationSource.Manual,
+            SourceSystem = "synthetic-source",
+            ConnectionString = $"Host={host};Database=synthetic;Username=synthetic;SSL Mode=Disable"
+        };
+        var resolved = new NpgsqlConnectionStringBuilder(await connection.ResolveAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(SslMode.Disable, resolved.SslMode);
     }
 
     [Fact]

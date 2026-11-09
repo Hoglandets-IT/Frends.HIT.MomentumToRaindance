@@ -29,8 +29,9 @@ Remove-Item Env:PGSERVICE -ErrorAction SilentlyContinue
 $env:PGHOST = 'YOUR_POSTGRES_HOST'
 $env:PGPORT = '5432'
 $env:PGDATABASE = 'YOUR_EXISTING_DATABASE'
-$env:PGSSLMODE = 'verify-full'
-# If your server needs a private CA, set its actual certificate path:
+$env:PGSSLMODE = 'require'
+# Use 'verify-ca' or 'verify-full' when certificate validation is required.
+# For those modes, set the private CA's actual certificate path if needed:
 # $env:PGSSLROOTCERT = 'C:\Secure\postgres-root-ca.crt'
 
 $login = Get-Credential -UserName 'YOUR_EXISTING_LOGIN' -Message 'Existing PostgreSQL login'
@@ -54,7 +55,7 @@ SELECT current_database() AS database, current_user AS login,
 if ($LASTEXITCODE -ne 0) { throw 'Connection check failed. Stop here.' }
 ```
 
-Expect your database/login, PostgreSQL 15+, UTF8 and `t` for both permissions. These checks cover first-install database permissions; an existing schema may require additional ownership/access. If a check fails, resolve it before continuing. Do not disable certificate validation to work around a TLS error.
+Expect your database/login, PostgreSQL 15+, UTF8 and `t` for both permissions. These checks cover first-install database permissions; an existing schema may require additional ownership/access. If a check fails, resolve it before continuing. Keep remote connections encrypted and select the SSL mode explicitly for the environment. When using a certificate-verifying mode, resolve certificate/trust errors rather than silently changing that mode.
 
 ### 3. Create the schema and tables
 
@@ -140,7 +141,7 @@ On **Fetch Ledger Note Accountings**, **Convert GraphQL Result**, and **Confirm 
 For `ConfigurationSource = Manual`, set `ConnectionString` to the following with your actual values:
 
 ```text
-Host=YOUR_POSTGRES_HOST;Port=5432;Database=YOUR_EXISTING_DATABASE;Username=YOUR_EXISTING_LOGIN;Password=YOUR_PASSWORD;SSL Mode=VerifyFull
+Host=YOUR_POSTGRES_HOST;Port=5432;Database=YOUR_EXISTING_DATABASE;Username=YOUR_EXISTING_LOGIN;Password=YOUR_PASSWORD;SSL Mode=Require
 ```
 
 Set `SourceSystem` to exactly the value registered at step 4 on all three tasks. Use connection-string quoting for passwords containing delimiters; store real credentials only in the protected configuration.
@@ -149,13 +150,13 @@ For canonical `HcpVault`, put this object in your database secret and set `Vault
 
 ```json
 {
-  "connectionString": "Host=YOUR_POSTGRES_HOST;Port=5432;Database=YOUR_EXISTING_DATABASE;Username=YOUR_EXISTING_LOGIN;Password=YOUR_PASSWORD;SSL Mode=VerifyFull"
+  "connectionString": "Host=YOUR_POSTGRES_HOST;Port=5432;Database=YOUR_EXISTING_DATABASE;Username=YOUR_EXISTING_LOGIN;Password=YOUR_PASSWORD;SSL Mode=Require"
 }
 ```
 
 The `Json` option accepts the same object in `JsonConfiguration`. These are **the existing database credentials**, not a new login. PowerShell environment settings are not automatically transferred to Frends.
 
-The agent must trust the server's certificate. If using a private CA, install trust there or configure Npgsql's `Root Certificate` path to a certificate accessible **on the agent**, not just the administration machine.
+The task accepts explicit `SSL Mode=Require`, `VerifyCA`, and `VerifyFull` for remote PostgreSQL. `Require` encrypts without validating the server certificate. `VerifyCA` validates the certificate chain; `VerifyFull` also validates the hostname. For either verifying mode, the agent must trust the issuing CA: install trust there or configure Npgsql's `Root Certificate` path accessible **on the agent**, not just the administration machine. `Allow`, `Prefer`, and an omitted mode are rejected; `Disable` is accepted only for loopback development. This PostgreSQL choice does not change HTTPS certificate requirements for Momentum or Vault.
 
 Wire the process as [documented in the operations guide](../docs/operations.md): Fetch → Convert → write original bytes once → Confirm. Pass Fetch's unchanged `ResultFile` and matching `FetchId` to Convert. Run the writer/confirmation only when there is output. Remove Frends KV read/write steps and manual checkpoint inputs: Convert commits no-file progress, and Confirm commits delivered progress atomically with delivery evidence.
 
@@ -237,7 +238,7 @@ The dedicated Compose project exposes PostgreSQL only on `127.0.0.1:55432`, data
 ## Shared migration behavior and macOS/Linux installation
 
 1. Use the existing database and login supplied to you. That login needs schema/object installation permissions; a second login is optional. This tool does not create databases, login roles, passwords or HcpVault secrets.
-2. Configure `psql` through a protected libpq service/passfile, for example `PGSERVICE=momentum_tracking_admin`. Alternatively set all of `PGHOST`, `PGDATABASE`, `PGUSER`, plus `PGPORT` as needed. Use `PGPASSFILE` with permissions `0600` on macOS/Linux, or protected NTFS ACLs on Windows; do not put passwords in command arguments, shell history or this repository. For a remote production server use certificate validation, e.g. `PGSSLMODE=verify-full` and the appropriate trusted CA configuration.
+2. Configure `psql` through a protected libpq service/passfile, for example `PGSERVICE=momentum_tracking_admin`. Alternatively set all of `PGHOST`, `PGDATABASE`, `PGUSER`, plus `PGPORT` as needed. Use `PGPASSFILE` with permissions `0600` on macOS/Linux, or protected NTFS ACLs on Windows; do not put passwords in command arguments, shell history or this repository. For a remote server select an encrypted mode explicitly, such as `PGSSLMODE=require`, or `verify-ca`/`verify-full` with the appropriate trusted CA configuration when certificate validation is required.
 3. Back up and test restoration before every deployment. Run the checked-out release's migration command as the schema owner:
 
    ```sh
