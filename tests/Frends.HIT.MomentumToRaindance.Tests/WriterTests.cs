@@ -252,6 +252,84 @@ public sealed class WriterTests
         Assert.Throws<InvalidOperationException>(() => Fixture.Convert(0, node));
     }
 
+    [Theory]
+    [InlineData("PRIV-Privatperson", "PRIV", "")]
+    [InlineData("FTG-Näringsidkare", "FTG", "SE556123456701")]
+    [InlineData("FTG-Övrig offentlig verksamhet", "FTG", "SE556123456701")]
+    [InlineData("ÖVR-Föreningar och stiftelser", "ÖVR", "")]
+    [InlineData("ÖVR-Näringsidkare", "ÖVR", "")]
+    [InlineData("PRIV-Näringsidkare", "PRIV", "")]
+    [InlineData("  ftg – Beskrivning  ", "FTG", "SE556123456701")]
+    [InlineData("övr—Beskrivning", "ÖVR", "")]
+    [InlineData("PRIV Beskrivning", "PRIV", "")]
+    [InlineData("FTG", "FTG", "SE556123456701")]
+    [InlineData("ÖVR", "ÖVR", "")]
+    [InlineData("PRIV", "PRIV", "")]
+    public void Source_customer_prefix_controls_S_type_and_VAT_regardless_of_description(
+        string source, string expectedType, string expectedVat)
+    {
+        var node = Fixture.Node();
+        var customer = node["ledgerNote"]!["customer"]!;
+        customer["nodeClass"]!["displayName"] = source;
+        customer["identityOfficialNumber"] = "556123-4567";
+        var record = Fixture.Lines(Fixture.Convert(0, node).ResultFile)[0];
+        Assert.Equal(expectedType, record[224..234].TrimEnd());
+        Assert.Equal(expectedVat, record[174..190].TrimEnd());
+        Assert.Equal("870", record[214..224].TrimEnd());
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("Privatperson")]
+    [InlineData("Näringsidkare")]
+    [InlineData("Föreningar och stiftelser")]
+    [InlineData("Övrig offentlig verksamhet")]
+    [InlineData("Kommunkund")]
+    [InlineData("Kund internt")]
+    [InlineData("Nyttjare")]
+    [InlineData("OVR-Föreningar och stiftelser")]
+    [InlineData("FTGX-Näringsidkare")]
+    [InlineData("PRIVATPERSON")]
+    [InlineData("ÖVRIG-Föreningar och stiftelser")]
+    [InlineData("Näringsidkare-FTG")]
+    [InlineData("X-FTG-Näringsidkare")]
+    public void Missing_unknown_or_embedded_customer_codes_fail_without_legacy_mapping(string? source)
+    {
+        var node = Fixture.Node(localId: 44);
+        node["ledgerNote"]!["customer"]!["nodeClass"]!["displayName"] = source;
+        var error = Assert.Throws<InvalidOperationException>(() => Fixture.Convert(0, node));
+        Assert.Contains("localId 44", error.Message);
+        Assert.Contains("Raindance customer-type prefix", error.Message);
+        Assert.Contains("ledgerNote.customer.nodeClass.displayName", error.Message);
+    }
+
+    [Fact]
+    public void One_customer_without_a_prefix_rejects_the_complete_batch()
+    {
+        var invalid = Fixture.Node(localId: 2);
+        invalid["ledgerNote"]!["customer"]!["nodeClass"]!["displayName"] = "Föreningar och stiftelser";
+        Assert.Throws<InvalidOperationException>(() => Fixture.Convert(0, Fixture.Node(localId: 1), invalid));
+    }
+
+    [Fact]
+    public async Task Missing_prefix_fails_before_database_configuration_is_resolved()
+    {
+        var node = Fixture.Node(localId: 44);
+        node["ledgerNote"]!["customer"]!["nodeClass"]!["displayName"] = "Privatperson";
+        var database = new InvoiceTrackingConnection
+        {
+            SourceSystem = "synthetic-prefix-test",
+            ConfigurationSource = MomentumConfigurationSource.Json,
+            JsonConfiguration = "deliberately invalid configuration"
+        };
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => Main.ConvertGraphQlResult(
+            new ConvertInput { GraphQlResult = Fixture.Envelope(node) }, database,
+            TestContext.Current.CancellationToken));
+        Assert.Contains("Raindance customer-type prefix", error.Message);
+    }
+
     [Fact]
     public void Unsupported_unicode_cannot_be_silently_replaced_by_question_marks()
     {

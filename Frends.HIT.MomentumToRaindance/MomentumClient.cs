@@ -34,13 +34,12 @@ internal sealed class MomentumClient
         cancellationToken.ThrowIfCancellationRequested();
 
         var token = await AuthenticateAsync(cancellationToken).ConfigureAwait(false);
-        var queryTemplate = await Main.ReadEmbeddedTextAsync("Queries.LedgerNoteAccountingsSync.graphql").ConfigureAwait(false);
+        var query = await Main.ReadEmbeddedTextAsync("Queries.LedgerNoteAccountingsSync.graphql").ConfigureAwait(false);
         cancellationToken.ThrowIfCancellationRequested();
-        var query = queryTemplate.Replace("__LAST_LOCAL_ID__", lastLocalId.ToString(System.Globalization.CultureInfo.InvariantCulture));
 
         var request = new GraphQlRequest(
             query,
-            new Dictionary<string, object?>());
+            new Dictionary<string, object?> { ["lastLocalId"] = lastLocalId });
 
         using var graphQlMessage = new HttpRequestMessage(HttpMethod.Post, _graphQlUri);
         graphQlMessage.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));

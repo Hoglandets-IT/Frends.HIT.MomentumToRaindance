@@ -350,9 +350,14 @@ MigrationBackup/
 .ionide/
 
 .env
+# Local production database credentials.
+.proddbsecret
 derp
 .DS_Store
 
 out/
+output/
+# Local receipt for externally published documentation.
+/docs/graphql/outline-publication.json
 KR24.txt
 momentum.json

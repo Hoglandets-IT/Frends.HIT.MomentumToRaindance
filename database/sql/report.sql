@@ -10,4 +10,10 @@ SELECT delivery_id, filename, content_sha256, byte_count, invoice_count, last_lo
        status, created_at, delivered_at, delivery_reference
 FROM momentum_raindance.deliveries WHERE source_system = :'source'
 ORDER BY created_at DESC, delivery_id;
+-- Immutable source-date snapshots for diagnosis; no customer names, addresses or raw source JSON.
+-- For a Swedish creation-date filter, use (source_created_at AT TIME ZONE 'Europe/Stockholm')::date.
+SELECT ledger_note_id, first_local_id, source_created_at, due_date, invoice_billed_date,
+       accounting_event_created_at, accounting_approved_at, recorded_at, delivery_id
+FROM momentum_raindance.invoices WHERE source_system = :'source'
+ORDER BY first_local_id, ledger_note_id;
 COMMIT;

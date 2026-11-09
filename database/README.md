@@ -82,7 +82,7 @@ Verify the installation (refresh the schema list in your database client if nece
 if ($LASTEXITCODE -ne 0) { throw 'Schema verification failed. Stop here.' }
 ```
 
-For this release, expect `001_invoice_tracking` and `002_canonical_identities`. Re-running migrations checks existing versions and applies only pending migrations; it does not clear data.
+For this release, expect `001_invoice_tracking`, `002_canonical_identities`, and `003_invoice_metadata`. Re-running migrations checks existing versions and applies only pending migrations; it does not clear data.
 
 **Do not run `grant-runtime` for your same-login setup.** The account that creates these objects owns them and already has access.
 
@@ -249,6 +249,42 @@ Both `migrate.ps1` and `migrate.sh` ignore local `psqlrc`, do not prompt for pas
 
 The optional runtime grant script requires an existing role and rejects administrative roles/database or schema owners and their members. It grants schema usage; reads of the four tables; inserts of only runtime invoice/delivery columns; execution of the immutable identity-validation function; and updates of delivery status, time and evidence. It does not grant insertion of historical evidence or database-managed timestamps. `SELECT ... FOR UPDATE` requires `UPDATE` on at least one column, so the source grants permit `UPDATE(created_at)` solely to acquire row locks. A trigger rejects actual changes to that column. There is no source insert/activation grant, no invoice update/delete, no truncate and no schema creation privilege. Use a new dedicated role with no other inherited grants; the script does not audit every unrelated membership or revoke unrelated pre-existing privileges. Table triggers also reject removing or rewriting identities and moving a delivery back to `reserved`.
 
+## Upgrading an existing installation to invoice metadata
+
+This task requires schema `003_invoice_metadata`. Upgrading an already activated installation does **not** require another registration, history import, or activation.
+
+1. Pause all conversions and confirmations using this database. Back up the database and retain the corresponding task package for recovery.
+2. With the same installation login, run the new release's `database/migrate.ps1 -PsqlPath $psql` on Windows, or `database/migrate.sh` on macOS/Linux, using your existing connection settings.
+3. Check `momentum_raindance.schema_migrations`: all three versions listed above must be present. Do not edit migration 001 or 002, reset the schema, or remove invoices.
+4. **Same login in Frends:** no grant step. **Separate restricted login:** rerun `grant-runtime` with that existing login, because the new columns require additional insert privileges.
+5. Deploy the matching task package, validate bindings, and resume only after an isolated test. The old task's exact-schema check rejects schema 003, so do not leave old and new task versions running together. A rollback requires a reviewed coordinated procedure, not deletion of migration history.
+
+Migration 003 adds five nullable fields to `momentum_raindance.invoices`:
+
+| Column | Momentum source | Meaning |
+| --- | --- | --- |
+| `source_created_at` | `ledgerNote.statusCreated` | Note creation instant, not the database insertion time. |
+| `due_date` | `ledgerNote.due` | Effective calendar due date. |
+| `invoice_billed_date` | `ledgerNote.invoice.billed` | Optional associated invoice's billing date. |
+| `accounting_event_created_at` | `transactionCreated.change.statusCreated` | Creation instant of the accounting event's change. |
+| `accounting_approved_at` | `transactionCreated.statusApproved` | Approval instant of the accounting transaction. |
+
+These values are an immutable snapshot when an invoice is first reserved. Existing rows and historical imports remain NULL; later fetches do not backfill or refresh them. Missing source values also remain NULL. The report command now lists these fields alongside the stable note ID, first local ID, and database `recorded_at`.
+
+Timestamp columns preserve instants, not the original textual UTC offset; date columns preserve calendar dates without timezone conversion. For Swedish calendar-day reporting, use an explicit timezone:
+
+```sql
+SELECT ledger_note_id, first_local_id,
+       source_created_at AT TIME ZONE 'Europe/Stockholm' AS created_in_sweden,
+       due_date, invoice_billed_date
+FROM momentum_raindance.invoices
+WHERE source_system = 'YOUR_REGISTERED_SOURCE'
+  AND (source_created_at AT TIME ZONE 'Europe/Stockholm')::date = DATE '2026-09-09'
+ORDER BY first_local_id;
+```
+
+No customer names, addresses, contact details, personal identity numbers, free-text rows, or raw JSON are added to tracking. Existing source IDs and invoice references are correlatable, so this is data minimization, **not anonymization**. Restrict access to reports. See [source-date distinctions and privacy](../docs/graphql/dates-and-metadata.md).
+
 ## Historical cutover: required before activation
 
 The new database cannot discover which invoices were sent before it existed. A remembered highest local ID is **not** historical proof. Keep the production export paused until a responsible operator has reconciled all prior deliveries against stable Momentum ledger-note IDs.
@@ -315,10 +351,11 @@ With the development container running and migrated:
 
 ```sh
 database/tests/migration-runner.sh
+database/tests/metadata-migration.sh
 database/tests/operator.sh
 ```
 
-Migration tests create and remove only a uniquely named scratch database, testing first-install concurrency, atomic rollback, idempotency, checksum drift, missing files and out-of-order migrations. Operator tests preserve synthetic rows in a unique `operator-test-*` source, covering CSV validation, idempotent imports, activation gates and evidence checks. Both leave test logs in a temporary directory.
+Migration tests create and remove only uniquely named scratch databases, testing first-install concurrency, atomic rollback, idempotency, checksum drift, missing files and out-of-order migrations. The metadata migration test upgrades synthetic schema-002 history to 003 and checks unchanged identities/deliveries, NULL historical metadata, repeated migration, and immutability. Operator tests preserve synthetic rows in a unique `operator-test-*` source, covering CSV validation, idempotent imports, activation gates and evidence checks. All leave test logs in a temporary directory. Do not run the operator suite against an inspection database you want to leave unchanged.
 
 To exercise grants and row-lock privileges, create this **development-only** login once, then apply the same grant script used in production:
 

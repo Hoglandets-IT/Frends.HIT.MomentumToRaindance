@@ -35,7 +35,7 @@ internal static class Fixture
                 {
                     displayName = "Testkund ÅÄÖ",
                     identityOfficialNumber = "19000101-0000",
-                    nodeClass = new { displayName = "Privatperson" }
+                    nodeClass = new { displayName = "PRIV-Privatperson" }
                 }
             },
             ledgers = new[]

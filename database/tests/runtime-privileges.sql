@@ -15,8 +15,11 @@ INSERT INTO momentum_raindance.deliveries
 VALUES (current_setting('momentum.test_delivery')::uuid, current_setting('momentum.test_source'),
     current_setting('momentum.test_delivery') || '.txt', repeat('a', 64), 100, 1, 10, 'reserved');
 INSERT INTO momentum_raindance.invoices
-    (source_system, ledger_note_id, first_local_id, content_sha256, delivery_id)
-VALUES (current_setting('momentum.test_source'), 'stable-invoice-1', 10, repeat('b', 64), current_setting('momentum.test_delivery')::uuid);
+    (source_system, ledger_note_id, first_local_id, content_sha256, delivery_id,
+     source_created_at, due_date, invoice_billed_date, accounting_event_created_at, accounting_approved_at)
+VALUES (current_setting('momentum.test_source'), 'stable-invoice-1', 10, repeat('b', 64), current_setting('momentum.test_delivery')::uuid,
+    TIMESTAMPTZ '2026-09-09 00:15:00+02', DATE '2026-09-30', DATE '2026-09-09',
+    TIMESTAMPTZ '2026-09-09 10:00:00+02', TIMESTAMPTZ '2026-09-09 11:00:00+02');
 SELECT delivery_id FROM momentum_raindance.deliveries
 WHERE delivery_id = current_setting('momentum.test_delivery')::uuid FOR UPDATE;
 
@@ -58,6 +61,11 @@ BEGIN
     BEGIN
         DELETE FROM momentum_raindance.invoices WHERE source_system = current_setting('momentum.test_source');
         RAISE EXCEPTION 'Runtime can delete invoice history.';
+    EXCEPTION WHEN insufficient_privilege THEN NULL; END;
+    BEGIN
+        UPDATE momentum_raindance.invoices SET source_created_at = now()
+        WHERE source_system = current_setting('momentum.test_source');
+        RAISE EXCEPTION 'Runtime can overwrite source metadata.';
     EXCEPTION WHEN insufficient_privilege THEN NULL; END;
     BEGIN
         TRUNCATE momentum_raindance.invoices;

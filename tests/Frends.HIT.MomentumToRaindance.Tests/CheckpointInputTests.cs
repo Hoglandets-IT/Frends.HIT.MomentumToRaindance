@@ -1,4 +1,5 @@
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using Xunit;
 
 namespace Frends.HIT.MomentumToRaindance.Tests;
@@ -18,13 +19,13 @@ public sealed class CheckpointInputTests
         dynamic sharedStateValue = value;
         var input = new FetchInput { LastLocalId = sharedStateValue };
         var calls = 0;
-        string? query = null;
+        JObject? requestBody = null;
         using var client = new HttpClient(new TransportTests.FakeHandler(async (request, token) =>
         {
             calls++;
             if (calls == 1)
                 return TransportTests.JsonResponse(TransportTests.AuthenticationResponse);
-            query = await request.Content!.ReadAsStringAsync(token);
+            requestBody = JObject.Parse(await request.Content!.ReadAsStringAsync(token));
             return TransportTests.JsonResponse(TransportTests.EmptyResponse);
         }));
 
@@ -32,7 +33,11 @@ public sealed class CheckpointInputTests
             TestContext.Current.CancellationToken, client);
 
         Assert.Equal(2, calls);
-        Assert.Contains($"lastLocalId: {expected}", query);
+        Assert.NotNull(requestBody);
+        Assert.Contains("lastLocalId: $lastLocalId", (string?)requestBody["query"]);
+        var checkpoint = requestBody["variables"]!["lastLocalId"]!;
+        Assert.Equal(JTokenType.Integer, checkpoint.Type);
+        Assert.Equal(expected, (int)checkpoint);
         Assert.Equal(expected, result.LastLocalId);
     }
 

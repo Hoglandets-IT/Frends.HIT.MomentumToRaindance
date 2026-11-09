@@ -32,7 +32,8 @@ GRANT UPDATE (created_at) ON momentum_raindance.sources TO :"runtime_role";
 REVOKE INSERT ON momentum_raindance.deliveries, momentum_raindance.invoices FROM :"runtime_role";
 GRANT INSERT (delivery_id, source_system, filename, content_sha256, byte_count, invoice_count, last_local_id, status)
     ON momentum_raindance.deliveries TO :"runtime_role";
-GRANT INSERT (source_system, ledger_note_id, first_local_id, node_id, invoice_number, ledger_note_number, content_sha256, delivery_id)
+GRANT INSERT (source_system, ledger_note_id, first_local_id, node_id, invoice_number, ledger_note_number, content_sha256, delivery_id,
+    source_created_at, due_date, invoice_billed_date, accounting_event_created_at, accounting_approved_at)
     ON momentum_raindance.invoices TO :"runtime_role";
 GRANT UPDATE (status, delivered_at, delivery_reference) ON momentum_raindance.deliveries TO :"runtime_role";
 COMMIT;

@@ -39,6 +39,18 @@ Retain the actual command results for each release's warnings-as-errors build, u
 
 This test scope does not exercise the hosted Frends designer, real HcpVault credentials, remote file delivery, database-loss failover, a production historical baseline, or the receiving Raindance importer. Local checks and CI configuration do not prove those external outcomes.
 
+## GraphQL and invoice-metadata verification — 2026-09-09
+
+The metadata update passed a fresh warnings-as-errors Release build with **zero warnings/errors** and **199 tests passed, zero failed/skipped**, on .NET 8.0.30 and local PostgreSQL 17 with schema `003_invoice_metadata`. The runtime path used the existing restricted test login. New coverage includes nullable timestamps/dates, explicit UTC offsets, sanitized parse failures, unchanged rendered bytes, immutable first-reservation snapshots, metadata-only replay, historical NULLs, and direct-update protection for all five columns.
+
+An isolated migration test upgraded synthetic schema-002 history to 003, confirmed unchanged source/invoice/delivery records, NULL old metadata, repeat-migration idempotency, and retained immutability. The general migration regression suite and runtime privilege checks also passed, including insertion into the new metadata columns and rejection of runtime metadata updates.
+
+The original and expanded queries were compared read-only against Momentum at checkpoints 0, 12 and 2147483647: **43, 31 and 0 nodes** respectively, with identical existing selected values, identities and order. The expanded query adds dates and page information without filters. Full schema inventory and limitations are documented in the [GraphQL guide](graphql/README.md).
+
+A separate saved-live-response test used all 43 invoices in a newly created local verification database, not the existing inspection database. Original-query, expanded-query and tracked conversion produced identical **66,324-byte** output. Source-created, due, accounting-created and accounting-approved fields matched each invoice exactly; all linked-invoice billed dates were NULL, matching the sample. The file was written exclusively and flushed/read back locally, confirmed with local-only evidence, then replayed: **0 emitted, 43 skipped, unchanged metadata**. This is not RemoteFS delivery or Raindance import evidence.
+
+Ignored evidence is retained in `out/graphql-research/` (`full-tests.xml`, `query-comparison-summary.json`, and `local-metadata-verification/summary.json`). The existing 43-invoice inspection database remained on schema 002 with unchanged invoice/delivery fingerprint. Production was not migrated, no hosted Frends/CI run was made, and `VERSION` was not edited. Deploy migration 003 and the matching task together; retain the acceptance gates below, especially paging and unsupported event types.
+
 ## Production acceptance gates
 
 1. **Historical coverage:** reconcile every invoice already sent before tracking, using stable Momentum IDs and trustworthy delivery/import evidence; seed and review the baseline before activation. Blank H invoice numbers mean old Raindance files alone are insufficient. Do not treat an unrecoverable baseline as completed.

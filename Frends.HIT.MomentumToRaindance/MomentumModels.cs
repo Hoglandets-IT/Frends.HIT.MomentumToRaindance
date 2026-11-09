@@ -1,3 +1,4 @@
+using System.Globalization;
 using Newtonsoft.Json;
 
 namespace Frends.HIT.MomentumToRaindance;
@@ -24,10 +25,25 @@ internal sealed record LedgerNoteAccountingNode
     public string? Id { get; init; }
     public int? LocalId { get; init; }
     public ChangeType? ChangeType { get; init; }
+    public AccountingTransaction? TransactionCreated { get; init; }
     public IReadOnlyList<Distribution>? Distributions { get; init; }
     public Company? Company { get; init; }
     public LedgerNote? LedgerNote { get; init; }
     public IReadOnlyList<LedgerEntry>? Ledgers { get; init; }
+}
+
+internal sealed record AccountingTransaction
+{
+    public AccountingTransactionChange? Change { get; init; }
+
+    [JsonConverter(typeof(OffsetTimestampConverter))]
+    public DateTimeOffset? StatusApproved { get; init; }
+}
+
+internal sealed record AccountingTransactionChange
+{
+    [JsonConverter(typeof(OffsetTimestampConverter))]
+    public DateTimeOffset? StatusCreated { get; init; }
 }
 
 internal sealed record ChangeType
@@ -121,6 +137,10 @@ internal sealed record LedgerNote
     public string? ReferenceNumber { get; init; }
     public string? PayToTypeDisplayName { get; init; }
     public string? PayToNumber { get; init; }
+
+    [JsonConverter(typeof(OffsetTimestampConverter))]
+    public DateTimeOffset? StatusCreated { get; init; }
+
     public DateTimeOffset? Due { get; init; }
     public decimal? ToPay { get; init; }
     public Contract? Contract { get; init; }
@@ -130,6 +150,10 @@ internal sealed record LedgerNote
 internal sealed record Invoice
 {
     public string? Number { get; init; }
+
+    [JsonConverter(typeof(CalendarDateConverter))]
+    public DateOnly? Billed { get; init; }
+
     public CreditInvoice? CreditInvoice { get; init; }
 }
 
@@ -235,4 +259,57 @@ internal sealed record AccountingRecord
     public bool? Debit { get; init; }
     public decimal? Amount { get; init; }
     public string? AccountDistributionCoding { get; init; }
+}
+
+/// <summary>Metadata timestamps require an explicit UTC offset; never infer the Frends agent's timezone.</summary>
+internal sealed class OffsetTimestampConverter : JsonConverter<DateTimeOffset?>
+{
+    private static readonly string[] Formats =
+    {
+        "yyyy-MM-dd'T'HH:mm:sszzz", "yyyy-MM-dd'T'HH:mm:ss.FFFFFFFzzz",
+        "yyyy-MM-dd'T'HH:mm:ss'Z'", "yyyy-MM-dd'T'HH:mm:ss.FFFFFFF'Z'"
+    };
+
+    public override DateTimeOffset? ReadJson(JsonReader reader, Type objectType, DateTimeOffset? existingValue,
+        bool hasExistingValue, JsonSerializer serializer)
+    {
+        if (reader.TokenType == JsonToken.Null)
+            return null;
+        if (reader.TokenType == JsonToken.String && reader.Value is string value
+            && DateTimeOffset.TryParseExact(value, Formats, CultureInfo.InvariantCulture,
+                DateTimeStyles.AssumeUniversal, out var timestamp))
+            return timestamp;
+        throw new JsonSerializationException("Expected a nullable ISO timestamp with an explicit UTC offset.");
+    }
+
+    public override void WriteJson(JsonWriter writer, DateTimeOffset? value, JsonSerializer serializer)
+    {
+        if (value.HasValue)
+            writer.WriteValue(value.Value.ToString("O", CultureInfo.InvariantCulture));
+        else
+            writer.WriteNull();
+    }
+}
+
+/// <summary>A GraphQL Date is a calendar date, not midnight in an inferred timezone.</summary>
+internal sealed class CalendarDateConverter : JsonConverter<DateOnly?>
+{
+    public override DateOnly? ReadJson(JsonReader reader, Type objectType, DateOnly? existingValue,
+        bool hasExistingValue, JsonSerializer serializer)
+    {
+        if (reader.TokenType == JsonToken.Null)
+            return null;
+        if (reader.TokenType == JsonToken.String && reader.Value is string value
+            && DateOnly.TryParseExact(value, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var date))
+            return date;
+        throw new JsonSerializationException("Expected a nullable ISO calendar date in yyyy-MM-dd format.");
+    }
+
+    public override void WriteJson(JsonWriter writer, DateOnly? value, JsonSerializer serializer)
+    {
+        if (value.HasValue)
+            writer.WriteValue(value.Value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+        else
+            writer.WriteNull();
+    }
 }

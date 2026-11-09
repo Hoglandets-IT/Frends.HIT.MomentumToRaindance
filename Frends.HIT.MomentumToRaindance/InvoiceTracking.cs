@@ -106,11 +106,17 @@ internal static class InvoiceTracking
                 await using var insert = Command(connection, transaction,
                     """
                     INSERT INTO momentum_raindance.invoices
-                    (source_system,ledger_note_id,first_local_id,node_id,invoice_number,ledger_note_number,content_sha256,delivery_id)
-                    VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+                    (source_system,ledger_note_id,first_local_id,node_id,invoice_number,ledger_note_number,content_sha256,delivery_id,
+                     source_created_at,due_date,invoice_billed_date,accounting_event_created_at,accounting_approved_at)
+                    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
                     """, database.SourceSystem, item.Id, item.Node.LocalId!.Value,
                     (object?)item.Node.Id ?? DBNull.Value, (object?)item.Node.LedgerNote!.Invoice?.Number ?? DBNull.Value,
-                    (object?)item.Node.LedgerNote.Number ?? DBNull.Value, item.Hash, reservationId);
+                    (object?)item.Node.LedgerNote.Number ?? DBNull.Value, item.Hash, reservationId,
+                    OptionalParameter(NpgsqlDbType.TimestampTz, item.Node.LedgerNote.StatusCreated?.ToUniversalTime()),
+                    OptionalParameter(NpgsqlDbType.Date, item.Node.LedgerNote.Due is { } due ? DateOnly.FromDateTime(due.DateTime) : null),
+                    OptionalParameter(NpgsqlDbType.Date, item.Node.LedgerNote.Invoice?.Billed),
+                    OptionalParameter(NpgsqlDbType.TimestampTz, item.Node.TransactionCreated?.Change?.StatusCreated?.ToUniversalTime()),
+                    OptionalParameter(NpgsqlDbType.TimestampTz, item.Node.TransactionCreated?.StatusApproved?.ToUniversalTime()));
                 await insert.ExecuteNonQueryAsync(token).ConfigureAwait(false);
             }
 
@@ -202,7 +208,7 @@ internal static class InvoiceTracking
         await using (var version = Command(connection, transaction,
             "SELECT version FROM momentum_raindance.schema_migrations ORDER BY version DESC LIMIT 1"))
         {
-            if (await version.ExecuteScalarAsync(token).ConfigureAwait(false) is not string schemaVersion || schemaVersion != "002_canonical_identities")
+            if (await version.ExecuteScalarAsync(token).ConfigureAwait(false) is not string schemaVersion || schemaVersion != "003_invoice_metadata")
                 throw new InvalidOperationException("Unsupported invoice-tracking schema. Run the matching offline migrations before enabling delivery.");
         }
         await using var command = Command(connection, transaction,
@@ -236,14 +242,19 @@ internal static class InvoiceTracking
         var command = new NpgsqlCommand(sql, connection, transaction);
         foreach (var value in values)
         {
-            // All nullable audit fields are text. Explicit typing is required for SQL NULL parameters.
-            if (value is DBNull)
+            // Nullable metadata uses explicit PostgreSQL types, including when its value is SQL NULL.
+            if (value is NpgsqlParameter parameter)
+                command.Parameters.Add(parameter);
+            else if (value is DBNull)
                 command.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = DBNull.Value });
             else
                 command.Parameters.Add(new NpgsqlParameter { Value = value });
         }
         return command;
     }
+
+    private static NpgsqlParameter OptionalParameter(NpgsqlDbType type, object? value) =>
+        new() { NpgsqlDbType = type, Value = value ?? DBNull.Value };
 
     private static string Hash(byte[] bytes) => Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
     private static GraphQlResponse<LedgerNoteAccountingsSyncData> Envelope(IReadOnlyList<LedgerNoteAccountingNode> nodes) =>

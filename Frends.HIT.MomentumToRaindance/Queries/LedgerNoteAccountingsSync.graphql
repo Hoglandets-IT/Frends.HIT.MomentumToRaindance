@@ -1,8 +1,19 @@
-query LedgerNoteAccountingsSync {
-  ledgerNoteAccountingsSync(lastLocalId: __LAST_LOCAL_ID__) {
+query LedgerNoteAccountingsSync($lastLocalId: Long!) {
+  ledgerNoteAccountingsSync(lastLocalId: $lastLocalId) {
+    totalCount
+    pageInfo {
+      hasNextPage
+      endCursor
+    }
     nodes {
       id
       localId
+      transactionCreated {
+        change {
+          statusCreated
+        }
+        statusApproved
+      }
       changeType {
         id
         displayName
@@ -64,6 +75,7 @@ query LedgerNoteAccountingsSync {
         }
         invoice {
           number
+          billed
           creditInvoice {
             number
             ledgerPrimary {
@@ -78,6 +90,7 @@ query LedgerNoteAccountingsSync {
           }
         }
         id
+        statusCreated
         refersToPeriodDisplayName
         number
         referenceNumber

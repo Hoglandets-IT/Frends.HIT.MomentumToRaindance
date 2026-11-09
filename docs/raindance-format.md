@@ -51,17 +51,20 @@ Stable Momentum invoice IDs and tracking metadata are **not inserted into any un
 | 195–206 | 12 | Identity | ASCII digits from `node.ledgerNote.customer.identityOfficialNumber`. |
 | 210–211 | 2 | Country | `distribution.postalAddress.country.shortDisplayName` |
 | 215–224 | 10 | Motpart | First nonblank parsed Motpart among included revenue records in the invoice. |
-| 225–234 | 10 | Kundtyp | Mapped from `node.ledgerNote.customer.nodeClass.displayName`, below. |
+| 225–234 | 10 | Kundtyp | Leading Raindance code from `node.ledgerNote.customer.nodeClass.displayName`, below. |
 
-Customer class mapping uses case-insensitive substring matches:
+The customer class must start with an explicit Raindance code. Matching is case-insensitive, surrounding whitespace is ignored, and the emitted code is canonical uppercase. The code can stand alone or be followed by whitespace or a hyphen (`-`, `–`, `—`) and a description. The description never changes the code:
 
-| Class text contains | Kundtyp |
+| Example source class text | Kundtyp |
 | --- | --- |
-| `Privatperson` | `PRIV` |
-| `Näringsidkare` or `Föreningar` | `FTG` |
-| `offentlig` | `ÖVR` |
+| `PRIV-Privatperson` | `PRIV` |
+| `FTG-Näringsidkare` | `FTG` |
+| `FTG-Övrig offentlig verksamhet` | `FTG` |
+| `ÖVR-Föreningar och stiftelser` | `ÖVR` |
 
-Missing/unknown customer class or an identity with no ASCII digits fails conversion. Non-ASCII digits are rejected. The task strips non-digit separators from identity values but does not verify personal/organisation-number checksums. Customer numbers from Momentum are not written to a separate S customer-number field.
+There is no fallback to the old description-based mapping. Missing/unrecognized prefixes, unprefixed labels such as `Privatperson`, codes embedded later in the label, and partial matches such as `FTGX` fail the complete conversion before any reservation is made. The error identifies the sync local ID and required source field. Momentum must expose the prefix in the actual GraphQL response: changing a UI label does not establish that it is available in `nodeClass.displayName`. `NodeClass.displayCode` is not used.
+
+An identity with no ASCII digits fails conversion. Non-ASCII digits are rejected. The task strips non-digit separators from identity values but does not verify personal/organisation-number checksums. Customer numbers from Momentum are not written to a separate S customer-number field.
 
 Blank name, address, or Motpart values are not rejected by the converter. Confirm that production data supplies the fields required by your receiving customer setup; identity validation alone does not establish that an S record can create a usable customer.
 

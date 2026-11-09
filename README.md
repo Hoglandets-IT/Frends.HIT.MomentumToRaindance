@@ -51,6 +51,8 @@ Takes `MomentumConnection`, `FetchInput`, and an optional `CancellationToken`. R
 
 GraphQL errors, including partial data accompanied by errors, fail the request. An explicit empty `nodes` array is a valid successful fetch. Invoice-level validation happens in Convert. Fetch does not expose `NodeCount`; branch on the conversion result after database checks.
 
+The query sends the checkpoint as a numeric GraphQL `Long!` variable and includes source creation/billing/accounting dates plus `pageInfo` and `totalCount`. Fetch still executes **one request**; it does not traverse pages or automatically reject `hasNextPage = true`. Do not treat that case as a complete export. The public checkpoint range remains `int`, despite the API's 64-bit cursor type. See the [query assessment](docs/graphql/query-assessment.md) for verified behavior and production limitations.
+
 ### Convert GraphQL Result
 
 Method: `Frends.HIT.MomentumToRaindance.Main.ConvertGraphQlResult`
@@ -77,6 +79,8 @@ Returns `Task<ConversionResult>`. Takes `ConvertInput`, the required `InvoiceTra
 Pending nodes are ordered by `localId`. Missing/nonpositive or duplicate pending local IDs fail. Every emitted invoice requires a stable, nonblank `ledgerNote.id`; there is no local-ID fallback. Duplicate invoice identities within one batch fail. An invoice already recorded with a different per-invoice Raindance byte hash fails rather than silently exporting an update. Historical bootstrap rows have no hash: they suppress identity only, without claiming a verified content match.
 
 Explicitly empty and rounding-only invoices emit nothing. An entirely no-op batch preserves its checkpoint; a batch containing actual candidate invoices includes validated no-op nodes when calculating its highest handled ID. See [checkpoint examples](docs/operations.md#checkpoint-contract) and [format validation](docs/raindance-format.md).
+
+Customer classification comes directly from a leading `PRIV`, `FTG` or `ÖVR` code in `ledgerNote.customer.nodeClass.displayName` (for example `ÖVR-Föreningar och stiftelser`). There is no description-based fallback. A missing/unknown prefix stops the batch before reservation; verify the code in the GraphQL response before deploying this change. See the [customer-field contract](docs/raindance-format.md#s--customer-305-characters).
 
 ### Write File and Confirm Invoice Delivery
 
@@ -218,6 +222,7 @@ The package includes the .NET 8 assembly, XML API documentation, readme, and roo
 
 - [Production operations and recovery](docs/operations.md): reservation lifecycle, delivery evidence, history bootstrap, checkpoint examples, backups, and failure handling.
 - [Database administration](database/README.md): native Windows PowerShell administration, local Docker, offline migrations, permissions, and operator commands.
+- [Momentum GraphQL API](docs/graphql/README.md) ([Outline](https://outline.intern.augustini.xyz/doc/momentum-graphql-api-accounting-integration-guide-5GyuMhxs8A)): introspected schema, request examples, date meanings, accounting-feed semantics, and query assessment. The metadata update requires [migration 003](database/README.md#upgrading-an-existing-installation-to-invoice-metadata) and stores five nullable date fields without adding customer payload.
 - [Raindance records and Momentum field mapping](docs/raindance-format.md): byte positions, debit/credit, period text, limits, and unused fields.
 - [Production audit](docs/production-audit.md): verification coverage and deployment gates.
 

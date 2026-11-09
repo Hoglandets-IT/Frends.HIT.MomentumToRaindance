@@ -78,7 +78,9 @@ internal static class RaindanceWriter
         var address = distribution?.PostalAddress;
         var customer = node.LedgerNote?.Customer;
         var customerType = CustomerType(customer?.NodeClass?.DisplayName)
-            ?? throw new InvalidOperationException("The invoice customer has an unsupported or missing customer class.");
+            ?? throw new InvalidOperationException(
+                $"The invoice customer at localId {node.LocalId} must have a Raindance customer-type prefix " +
+                "(PRIV, FTG or ÖVR) in ledgerNote.customer.nodeClass.displayName.");
         var identity = RequiredCustomerIdentity(customer?.IdentityOfficialNumber);
         var record = new FixedWidthRecord(305);
 
@@ -262,16 +264,27 @@ internal static class RaindanceWriter
             .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .FirstOrDefault();
 
-    private static string? CustomerType(string? nodeClassDisplayName) =>
-        nodeClassDisplayName switch
+    private static string? CustomerType(string? nodeClassDisplayName)
+    {
+        var value = nodeClassDisplayName?.Trim();
+        if (string.IsNullOrEmpty(value))
         {
-            null => null,
-            var value when value.Contains("Privatperson", StringComparison.OrdinalIgnoreCase) => "PRIV",
-            var value when value.Contains("Näringsidkare", StringComparison.OrdinalIgnoreCase) => "FTG",
-            var value when value.Contains("Föreningar", StringComparison.OrdinalIgnoreCase) => "FTG",
-            var value when value.Contains("offentlig", StringComparison.OrdinalIgnoreCase) => "ÖVR",
-            _ => null
-        };
+            return null;
+        }
+
+        // The source owns classification. Read only its leading code, never infer it from the description.
+        foreach (var code in new[] { "PRIV", "FTG", "ÖVR" })
+        {
+            if (value.StartsWith(code, StringComparison.OrdinalIgnoreCase) &&
+                (value.Length == code.Length || char.IsWhiteSpace(value[code.Length]) ||
+                 value[code.Length] is '-' or '–' or '—'))
+            {
+                return code;
+            }
+        }
+
+        return null;
+    }
 
     private static string? CustomerVatNumber(string? customerType, string? identityOfficialNumber)
     {

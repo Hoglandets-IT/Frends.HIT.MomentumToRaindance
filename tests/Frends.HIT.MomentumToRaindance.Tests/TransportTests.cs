@@ -16,8 +16,11 @@ public class TransportTests
         {"data":{"ledgerNoteAccountingsSync":{"nodes":[]}},"extensions":{"opaque":"2026-09-01T00:00:00.123+02:00","amount":123456789012.345678}}
         """;
 
-    [Fact]
-    public async Task Fetch_preserves_checkpoint_and_raw_json_while_authenticating_and_querying()
+    [Theory]
+    [InlineData(0)]
+    [InlineData(123)]
+    [InlineData(int.MaxValue)]
+    public async Task Fetch_preserves_checkpoint_and_raw_json_while_authenticating_and_querying(int lastLocalId)
     {
         var requests = new List<(HttpMethod Method, string Uri, string? Authorization, JObject Body)>();
         using var httpClient = new HttpClient(new FakeHandler(async (request, cancellationToken) =>
@@ -28,11 +31,11 @@ public class TransportTests
             return JsonResponse(requests.Count == 1 ? AuthenticationResponse : EmptyResponse);
         }));
 
-        var result = await Main.FetchCoreAsync(Connection(), new FetchInput { LastLocalId = 123 },
+        var result = await Main.FetchCoreAsync(Connection(), new FetchInput { LastLocalId = lastLocalId },
             TestContext.Current.CancellationToken, httpClient);
 
         Assert.True(result.Success);
-        Assert.Equal(123, result.LastLocalId);
+        Assert.Equal(lastLocalId, result.LastLocalId);
         Assert.Contains('\n', result.ResultFile);
         Assert.True(JToken.DeepEquals(JObject.Parse(EmptyResponse), JObject.Parse(result.ResultFile)));
         Assert.Contains("123456789012.345678", result.ResultFile);
@@ -46,9 +49,40 @@ public class TransportTests
         Assert.Equal("test-api-key", (string?)requests[0].Body["key"]);
         Assert.Equal("https://example.invalid/graphql", requests[1].Uri);
         Assert.Equal("Bearer test-access-token", requests[1].Authorization);
-        Assert.Contains("ledgerNoteAccountingsSync(lastLocalId: 123)", (string?)requests[1].Body["query"]);
-        Assert.DoesNotContain("__LAST_LOCAL_ID__", (string?)requests[1].Body["query"]);
-        Assert.Empty(Assert.IsType<JObject>(requests[1].Body["variables"]));
+        var query = (string?)requests[1].Body["query"];
+        Assert.Contains("query LedgerNoteAccountingsSync($lastLocalId: Long!)", query);
+        Assert.Contains("ledgerNoteAccountingsSync(lastLocalId: $lastLocalId)", query);
+        Assert.DoesNotContain("__LAST_LOCAL_ID__", query);
+        var variables = Assert.IsType<JObject>(requests[1].Body["variables"]);
+        Assert.Single(variables);
+        Assert.Equal(JTokenType.Integer, variables["lastLocalId"]!.Type);
+        Assert.Equal(lastLocalId, (int)variables["lastLocalId"]!);
+        Assert.Matches(@"transactionCreated\s*\{\s*change\s*\{\s*statusCreated\s*\}\s*statusApproved\s*\}", query!);
+        Assert.Matches(@"invoice\s*\{\s*number\s+billed\s+creditInvoice", query!);
+        Assert.Matches(@"id\s+statusCreated\s+refersToPeriodDisplayName", query!);
+        Assert.Matches(@"totalCount\s+pageInfo\s*\{\s*hasNextPage\s+endCursor\s*\}", query!);
+    }
+
+    [Fact]
+    public async Task Fetch_preserves_metadata_and_page_information_without_implicitly_fetching_more_pages()
+    {
+        const string payload = """
+            {"data":{"ledgerNoteAccountingsSync":{"totalCount":2,"pageInfo":{"hasNextPage":true,"endCursor":"MA=="},"nodes":[{"id":"test-accounting-id","localId":1,"transactionCreated":{"change":{"statusCreated":"2026-09-09T10:00:00.123+02:00"},"statusApproved":"2026-09-09T10:01:00+02:00"},"ledgerNote":{"id":"test-note-id","statusCreated":"2026-09-08T08:00:00.456+02:00","invoice":{"billed":"2026-09-09"}}}]}}}
+            """;
+        var requestCount = 0;
+        using var httpClient = new HttpClient(new FakeHandler((_, _) => Task.FromResult(JsonResponse(
+            ++requestCount == 1 ? AuthenticationResponse : payload))));
+
+        var result = await Main.FetchCoreAsync(Connection(), new FetchInput { LastLocalId = 0 },
+            TestContext.Current.CancellationToken, httpClient);
+
+        Assert.True(result.Success);
+        Assert.Equal(0, result.LastLocalId);
+        Assert.Single(JObject.Parse(result.ResultFile)["data"]!["ledgerNoteAccountingsSync"]!["nodes"]!);
+        Assert.Equal(2, requestCount); // One authentication and one GraphQL response; no automatic page drain.
+        Assert.True(JToken.DeepEquals(JObject.Parse(payload), JObject.Parse(result.ResultFile)));
+        Assert.Contains("2026-09-09T10:00:00.123+02:00", result.ResultFile);
+        Assert.Contains("2026-09-08T08:00:00.456+02:00", result.ResultFile);
     }
 
     [Fact]
