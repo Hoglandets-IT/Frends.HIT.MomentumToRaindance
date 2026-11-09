@@ -4,16 +4,20 @@ BEGIN;
 SET LOCAL synchronous_commit = on;
 SELECT set_config('momentum.test_source', 'database-tooling-test-' || gen_random_uuid(), true);
 SELECT set_config('momentum.test_delivery', gen_random_uuid()::text, true);
+SELECT set_config('momentum.test_fetch', gen_random_uuid()::text, true);
 INSERT INTO momentum_raindance.sources (source_system, activated_at, baseline_reference)
 VALUES (current_setting('momentum.test_source'), now(), 'Synthetic privilege test');
 
 SET LOCAL ROLE momentum_tracking_runtime;
 SELECT source_system FROM momentum_raindance.sources
 WHERE source_system = current_setting('momentum.test_source') FOR UPDATE;
+INSERT INTO momentum_raindance.fetch_batches
+    (fetch_id, source_system, from_local_id, through_local_id, node_count, payload_sha256)
+VALUES (current_setting('momentum.test_fetch')::uuid, current_setting('momentum.test_source'), 0, 10, 1, repeat('c',64));
 INSERT INTO momentum_raindance.deliveries
-    (delivery_id, source_system, filename, content_sha256, byte_count, invoice_count, last_local_id, status)
+    (delivery_id, source_system, filename, content_sha256, byte_count, invoice_count, last_local_id, status, fetch_id)
 VALUES (current_setting('momentum.test_delivery')::uuid, current_setting('momentum.test_source'),
-    current_setting('momentum.test_delivery') || '.txt', repeat('a', 64), 100, 1, 10, 'reserved');
+    current_setting('momentum.test_delivery') || '.txt', repeat('a', 64), 100, 1, 10, 'reserved', current_setting('momentum.test_fetch')::uuid);
 INSERT INTO momentum_raindance.invoices
     (source_system, ledger_note_id, first_local_id, content_sha256, delivery_id,
      source_created_at, due_date, invoice_billed_date, accounting_event_created_at, accounting_approved_at)
@@ -24,7 +28,25 @@ SELECT delivery_id FROM momentum_raindance.deliveries
 WHERE delivery_id = current_setting('momentum.test_delivery')::uuid FOR UPDATE;
 
 DO $tests$
+DECLARE rejected boolean;
 BEGIN
+    rejected := false;
+    BEGIN
+        UPDATE momentum_raindance.sources SET last_local_id=10 WHERE source_system=current_setting('momentum.test_source');
+    EXCEPTION WHEN raise_exception THEN rejected := true; END;
+    IF NOT rejected THEN RAISE EXCEPTION 'Unconfirmed reservation allowed checkpoint advancement.'; END IF;
+    BEGIN
+        UPDATE momentum_raindance.fetch_batches SET through_local_id=11 WHERE fetch_id=current_setting('momentum.test_fetch')::uuid;
+        RAISE EXCEPTION 'Runtime can rewrite fetch evidence.';
+    EXCEPTION WHEN insufficient_privilege THEN NULL; END;
+    BEGIN
+        DELETE FROM momentum_raindance.fetch_batches WHERE fetch_id=current_setting('momentum.test_fetch')::uuid;
+        RAISE EXCEPTION 'Runtime can delete fetch evidence.';
+    EXCEPTION WHEN insufficient_privilege THEN NULL; END;
+    BEGIN
+        TRUNCATE momentum_raindance.fetch_batches;
+        RAISE EXCEPTION 'Runtime can truncate fetch evidence.';
+    EXCEPTION WHEN insufficient_privilege THEN NULL; END;
     IF momentum_raindance.is_canonical_identity(' invoice')
        OR momentum_raindance.is_canonical_identity(U&'invoice\00A0')
        OR momentum_raindance.is_canonical_identity(U&'in\0085voice') THEN
@@ -87,11 +109,27 @@ UPDATE momentum_raindance.deliveries
 SET status = 'delivered', delivered_at = now(), delivery_reference = 'Synthetic writer receipt'
 WHERE delivery_id = current_setting('momentum.test_delivery')::uuid;
 
+UPDATE momentum_raindance.sources SET last_local_id=10
+WHERE source_system=current_setting('momentum.test_source');
+
 -- Trigger failures share SQLSTATE P0001; a flag distinguishes expected rejection
 -- from the test's own failed assertion.
 DO $tests$
 DECLARE rejected boolean;
 BEGIN
+    IF (SELECT last_local_id FROM momentum_raindance.sources WHERE source_system=current_setting('momentum.test_source')) <> 10 THEN
+        RAISE EXCEPTION 'Runtime did not persist checkpoint after confirmation.';
+    END IF;
+    rejected := false;
+    BEGIN
+        UPDATE momentum_raindance.sources SET last_local_id=0 WHERE source_system=current_setting('momentum.test_source');
+    EXCEPTION WHEN raise_exception THEN rejected := true; END;
+    IF NOT rejected THEN RAISE EXCEPTION 'Runtime can rewind committed progress.'; END IF;
+    rejected := false;
+    BEGIN
+        UPDATE momentum_raindance.sources SET last_local_id=11 WHERE source_system=current_setting('momentum.test_source');
+    EXCEPTION WHEN raise_exception THEN rejected := true; END;
+    IF NOT rejected THEN RAISE EXCEPTION 'Runtime can skip beyond complete-fetch evidence.'; END IF;
     rejected := false;
     BEGIN
         UPDATE momentum_raindance.sources SET created_at = now() - interval '1 day'

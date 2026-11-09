@@ -1,16 +1,16 @@
 # Can we ask the Momentum API a better question?
 
-Yes: add explicit dates and page-completeness information, and pass the checkpoint as a typed variable. Keep the vendor's accounting event feed and all existing export fields. Replacing it with a date-filtered invoice query would change which business events are eligible for delivery, not merely improve the query.
+The task uses the vendor's accounting event feed with explicit dates, typed cursor variables, and complete page traversal. PostgreSQL owns progress and receipt validation. Replacing this with a date-filtered invoice query would change which business events are eligible for delivery, not merely improve the query.
 
-This assessment is based on the live schema captured on **9 September 2026**, the supplied vendor Accounting Sync guide, read-only comparisons, and the repository implementation. It distinguishes changes prepared here from recommendations that have **not** been implemented.
+The source-contract observations and comparison evidence below come from the live schema captured on **9 September 2026** and the supplied vendor Accounting Sync guide. The current implementation section also describes the later database-checkpoint and pagination changes. Historical probes do not establish deployment of the current code or guarantee behavior for every tenant.
 
 ## Changes prepared in the repository
 
 The embedded `LedgerNoteAccountingsSync.graphql` query now uses this operation and argument:
 
 ```graphql
-query LedgerNoteAccountingsSync($lastLocalId: Long!) {
-  ledgerNoteAccountingsSync(lastLocalId: $lastLocalId) {
+query LedgerNoteAccountingsSync($lastLocalId: Long!, $after: String) {
+  ledgerNoteAccountingsSync(lastLocalId: $lastLocalId, after: $after) {
     nodes {
       localId
     }
@@ -22,15 +22,16 @@ This shortened example illustrates the operation header and variable use, not th
 
 | Change | Benefit | What it does not do |
 | --- | --- | --- |
-| A JSON variable `lastLocalId`, declared `Long!` | Uses the schema's cursor scalar and avoids inserting a value into query text. | Does not widen the Frends result/input parsing, C# node model, or database checkpoints to 64-bit. |
+| A JSON variable `lastLocalId`, declared `Long!` | Uses the schema's cursor scalar and avoids inserting a value into query text. Production reads it from PostgreSQL. | Does not widen the C# node model or database checkpoints to 64-bit. |
 | `ledgerNote.statusCreated` | Exposes the original note creation timestamp. | Does not filter out older notes or equate creation with rental period. |
 | `transactionCreated { change { statusCreated } statusApproved }` | Exposes accounting change creation and transaction approval separately. | Does not claim they are invoice creation dates. |
 | `ledgerNote.invoice.billed` | Exposes an optional Faktura billing date. | Does not invent a value for AVI notes with no linked invoice. |
-| `totalCount`, `pageInfo { hasNextPage endCursor }` | Makes completeness information visible in the fetched JSON. | Does not automatically traverse pages or enforce completeness in the converter. |
+| `after`, `totalCount`, and `pageInfo { hasNextPage endCursor }` | Fetch follows every page, checks forward progress and consistent counts, and returns one complete merged response. | Does not establish server snapshot isolation or retention guarantees. |
+| Durable fetch receipt | Binds exact response bytes to a source and database cursor range, so Convert cannot acknowledge an edited or stale subset. | Does not replace stable invoice identities or prove file delivery. |
 
 All existing selected fields remain; no `where`, date/status/customer filters, sort override, or explicit page-size argument was added. The new dates feed the [five-column immutable metadata snapshot](dates-and-metadata.md). Raindance's record mapping, byte encoding, amount/sign handling, and duplicate identity rules are not changed by the query addition.
 
-These are local repository changes, not evidence that the new query is deployed in Frends. The configured public fetch still performs one accounting-sync request and returns its pretty-printed JSON with the **input checkpoint unchanged**.
+These are repository changes, not evidence that the matching package and migration 004 are deployed. Public Fetch takes API and database settings, with no external checkpoint. It returns complete pretty-printed JSON, a durable `FetchId`, and the database starting cursor as an informational result. It does not advance delivery progress. Convert and Confirm commit progress only under the [database-owned checkpoint contract](../operations.md#checkpoint-contract).
 
 ## Live comparison evidence
 
@@ -46,7 +47,7 @@ Every returned node in the non-empty comparisons had a note creation timestamp, 
 
 These comparisons are evidence of **result compatibility for these observed cases**, not proof of source snapshot isolation, all event types, all tenants, better performance, or vendor support. Unlike the small date-only probes, the full-query comparisons necessarily fetched the existing invoice payload fields; those responses stay in ignored local research files and are not documentation examples. No API mutation, database operation, or file delivery was performed by the comparison script.
 
-The sanitized results are in `out/graphql-research/query-comparison-summary.json`. Query SHA-256 values recorded by that script:
+The sanitized results are in `out/graphql-research/query-comparison-summary.json`. Query SHA-256 values recorded by that historical script, before the later pagination argument was added:
 
 ```text
 Original: e2a02e3be7a8efb3bca0560f8ee51e250e1d65633521f17370f0a10b539d0bc0
@@ -55,19 +56,21 @@ Expanded: 3e6d577c396addd161889d159b5f1286fa26c4ef74b84c89812333fc1235849b
 
 ## Vendor warning and the boundary of this change
 
-The supplied Accounting Sync guide advises against altering or filtering its sync queries. The changes here are additive field selections and a variable replacing the same numeric checkpoint argument; they do not intentionally change membership or business semantics. Live compatibility checks support that narrow change, but they are not vendor approval. Confirm additive selections and production paging behavior with Momentum when establishing support expectations.
+The supplied Accounting Sync guide advises against altering or filtering its sync queries. The September comparison tested additive field selections and a variable replacing the same numeric checkpoint argument; it did not test the later database receipt workflow. Current paging also follows the exposed continuation cursor without date/status/customer filters. These changes do not intentionally change business membership, but local checks are not vendor approval. Confirm additive selections and production paging behavior with Momentum when establishing support expectations.
 
 Do not remove nested accounting records, select only currently unpaid invoices, filter by creation date, exclude reversal events, or switch to an ordinary invoice query and continue advancing the accounting checkpoint. Such changes can hide an accounting event permanently from a later run. One-off debugging reports should use separate read-only queries/files and never update delivery state.
 
-## Improvements still requiring separate implementation
-
-### Explicit pagination and completeness handling
+## Pagination and database-owned progress
 
 The schema exposes `first`, `after`, `last`, `before`, and `pageInfo`. A two-page diagnostic probe with `first: 2` returned local IDs 1–2, then 3–4 using the first page's returned `endCursor`. This proves basic cursor traversal for that sample. It does not document the server's maximum/default page size, stable ordering guarantees, or consistency during concurrent accounting approvals.
 
-**Current limitation:** fetch makes one request; the typed conversion model consumes `nodes` and does not reject `hasNextPage: true`. Page metadata is preserved in raw fetch JSON, not promoted to separate typed result properties. All 43 current nodes fitted in one page, but that is not a general completeness guarantee. `totalCount` describes the connection, not necessarily the number fetched into this response; selecting it does not fetch missing rows.
+The September implementation made one request and did not enforce `hasNextPage`. All 43 nodes in that sample fitted in one page; that observation was never a general completeness guarantee. The current implementation replaces that behavior with complete traversal, holding `lastLocalId` fixed and following the opaque `after` cursor until the last page. It rejects missing or repeated continuation cursors, inconsistent totals, malformed metadata, non-increasing/duplicate/out-of-range IDs, and GraphQL partial errors. The merged node count must match the connection's total.
 
-A hardened future implementation should retain the same `lastLocalId` lower bound, traverse the returned opaque cursors until complete, validate cursor progress, and only expose a complete successful batch for reservation. Alternatively, an explicit fail-closed guard can stop partial responses until traversal is supported. Neither behavior is implemented by adding `pageInfo` alone. Do not assume it is safe to acknowledge the highest ID of a partial page without a vendor-backed ordering/continuation contract.
+Only a successful complete fetch can be registered as a durable receipt. A partial timeout/failure cannot reserve invoices or advance progress. Fetch rechecks the database cursor before registering the receipt, and Convert checks it again before processing. The exact JSON hash prevents filtering or reformatting between tasks from silently acknowledging omitted records. With new invoices, reservation leaves progress unchanged until Confirm updates delivery status and cursor atomically; validated historical/no-op batches can advance without a file.
+
+These checks detect incomplete or inconsistent observed responses. They cannot prove the source did not omit an event, or establish snapshot isolation during concurrent source changes. Confirm the vendor's ordering/retention contract and retry a failed traversal rather than acknowledging partial data.
+
+## Improvements still requiring separate implementation
 
 ### End-to-end 64-bit checkpoints
 
@@ -92,4 +95,4 @@ No latency, server-load, or large-backlog benchmark was performed. Extra fields 
 - `ledgerNoteChangesSync` / `EntityChangeLog` are not a durable accounting feed. The captured schema labels the log **beta** and says its rows are deleted after **seven days**.
 - `ledgerNote.statusCreated` is useful for reporting; it is not an alternative delivery cursor.
 
-The best immediate query remains the vendor-shaped accounting sync selection, enriched with explicit metadata. The next reliability work is completeness handling and the end-to-end cursor contract, not an invoice-date filter.
+The production query remains the vendor-shaped accounting sync selection, enriched with explicit metadata and complete paging. Database-owned progress removes Frends KV as a dependency. Remaining work includes the end-to-end 64-bit contract and representative unsupported business-event behavior, not an invoice-date filter.

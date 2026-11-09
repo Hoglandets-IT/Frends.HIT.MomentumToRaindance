@@ -11,11 +11,15 @@ public sealed class ResultTests
     [InlineData(123)]
     public void Fetch_result_checkpoint_survives_serialization(int lastLocalId)
     {
-        var original = new FetchResult(true, "{}", "Fetched", lastLocalId);
+        var original = new FetchResult(true, "{}", "Fetched", lastLocalId)
+        {
+            FetchId = Guid.NewGuid().ToString("D")
+        };
         var restored = JsonConvert.DeserializeObject<FetchResult>(JsonConvert.SerializeObject(original));
         Assert.NotNull(restored);
         Assert.True(restored.Success);
         Assert.Equal(original.LastLocalId, restored.LastLocalId);
+        Assert.Equal(original.FetchId, restored.FetchId);
         Assert.Equal(original.ResultFile, restored.ResultFile);
         Assert.Equal(original.Info, restored.Info);
     }

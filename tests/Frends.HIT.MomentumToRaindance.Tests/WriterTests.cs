@@ -313,21 +313,33 @@ public sealed class WriterTests
         Assert.Throws<InvalidOperationException>(() => Fixture.Convert(0, Fixture.Node(localId: 1), invalid));
     }
 
-    [Fact]
-    public async Task Missing_prefix_fails_before_database_configuration_is_resolved()
+    [PostgresFact]
+    public async Task Missing_prefix_in_registered_batch_cannot_reserve_or_advance_checkpoint()
     {
-        var node = Fixture.Node(localId: 44);
-        node["ledgerNote"]!["customer"]!["nodeClass"]!["displayName"] = "Privatperson";
+        var source = "prefix-test-" + Guid.NewGuid().ToString("N");
+        await using var admin = new Npgsql.NpgsqlConnection(Environment.GetEnvironmentVariable("MOMENTUM_TEST_POSTGRES")!);
+        await admin.OpenAsync(TestContext.Current.CancellationToken);
+        await using (var create = new Npgsql.NpgsqlCommand("INSERT INTO momentum_raindance.sources (source_system,activated_at,baseline_reference) VALUES (@source,now(),'Synthetic prefix test')", admin))
+        {
+            create.Parameters.AddWithValue("source", source);
+            await create.ExecuteNonQueryAsync(TestContext.Current.CancellationToken);
+        }
         var database = new InvoiceTrackingConnection
         {
-            SourceSystem = "synthetic-prefix-test",
-            ConfigurationSource = MomentumConfigurationSource.Json,
-            JsonConfiguration = "deliberately invalid configuration"
+            SourceSystem = source,
+            ConfigurationSource = MomentumConfigurationSource.Manual,
+            ConnectionString = Environment.GetEnvironmentVariable("MOMENTUM_TEST_POSTGRES_RUNTIME") ?? Environment.GetEnvironmentVariable("MOMENTUM_TEST_POSTGRES")!
         };
-        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => Main.ConvertGraphQlResult(
-            new ConvertInput { GraphQlResult = Fixture.Envelope(node) }, database,
-            TestContext.Current.CancellationToken));
+        var node = Fixture.Node(localId: 44);
+        node["ledgerNote"]!["id"] = "synthetic-prefix-invoice";
+        node["ledgerNote"]!["customer"]!["nodeClass"]!["displayName"] = "Privatperson";
+        var input = await Fixture.RegisteredInputAsync(database, TestContext.Current.CancellationToken, node);
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => Main.ConvertGraphQlResult(input, database, TestContext.Current.CancellationToken));
         Assert.Contains("Raindance customer-type prefix", error.Message);
+        Assert.Equal(0, await InvoiceTracking.ReadCheckpointAsync(database, TestContext.Current.CancellationToken));
+        await using var count = new Npgsql.NpgsqlCommand("SELECT count(*) FROM momentum_raindance.deliveries WHERE source_system=@source", admin);
+        count.Parameters.AddWithValue("source", source);
+        Assert.Equal(0L, await count.ExecuteScalarAsync(TestContext.Current.CancellationToken));
     }
 
     [Fact]

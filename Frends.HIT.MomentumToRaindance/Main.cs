@@ -16,18 +16,39 @@ public class Main
     private static readonly JsonSerializerSettings JsonSettings = CreateJsonSettings();
 
     /// <summary>
-    /// Fetch ledger note accountings from Momentum GraphQL.
+    /// Read the durable PostgreSQL checkpoint, fetch every Momentum page, and register a verified batch.
     /// </summary>
     /// <param name="connection">Momentum API connection settings.</param>
-    /// <param name="input">Fetch options and the last delivered checkpoint.</param>
+    /// <param name="database">Durable invoice history, checkpoint and permanent source identity.</param>
     /// <param name="cancellationToken">Cancellation from the Frends process.</param>
-    /// <returns>Prettified GraphQL JSON and the unchanged input checkpoint.</returns>
+    /// <returns>Complete GraphQL JSON and its durable FetchId. Fetching does not advance the checkpoint.</returns>
     [DisplayName("Fetch Ledger Note Accountings")]
     public static Task<FetchResult> FetchLedgerNoteAccountings(
         [PropertyTab] MomentumConnection connection,
-        [PropertyTab] FetchInput input,
+        [PropertyTab] InvoiceTrackingConnection database,
         CancellationToken cancellationToken = default) =>
-        FetchCoreAsync(connection, input, cancellationToken);
+        FetchTrackedCoreAsync(connection, database, cancellationToken);
+
+    internal static async Task<FetchResult> FetchTrackedCoreAsync(
+        MomentumConnection connection,
+        InvoiceTrackingConnection database,
+        CancellationToken cancellationToken,
+        HttpClient? httpClient = null)
+    {
+        ArgumentNullException.ThrowIfNull(connection);
+        ArgumentNullException.ThrowIfNull(database);
+        if (connection.TimeoutSeconds is < 1 or > 3600)
+            throw new ArgumentOutOfRangeException(nameof(connection.TimeoutSeconds), "Timeout must be between 1 and 3600 seconds.");
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(connection.TimeoutSeconds));
+        var checkpoint = await InvoiceTracking.ReadCheckpointAsync(database, timeout.Token).ConfigureAwait(false);
+        var fetched = await FetchCoreAsync(connection, new FetchInput { LastLocalId = checkpoint },
+            timeout.Token, httpClient).ConfigureAwait(false);
+        fetched.FetchId = await InvoiceTracking.RegisterFetchAsync(fetched.ResultFile, checkpoint,
+            database, timeout.Token).ConfigureAwait(false);
+        fetched.Info = "Complete Momentum batch registered in PostgreSQL. Pass ResultFile unchanged and FetchId to Convert; no Frends checkpoint storage is required.";
+        return fetched;
+    }
 
     internal static async Task<FetchResult> FetchCoreAsync(
         MomentumConnection connection,
@@ -62,10 +83,10 @@ public class Main
     /// <summary>
     /// Reserve previously unseen invoices in PostgreSQL and return Raindance file bytes once.
     /// </summary>
-    /// <param name="input">Existing GraphQL JSON and the last delivered checkpoint.</param>
+    /// <param name="input">Unchanged GraphQL JSON and FetchId returned by Fetch.</param>
     /// <param name="database">Required durable invoice history and source identity.</param>
     /// <param name="cancellationToken">Cancellation from the Frends process.</param>
-    /// <returns>Latin-1-encoded CRLF file bytes and a checkpoint to persist only after successful file delivery.</returns>
+    /// <returns>Reserved Latin-1/CRLF bytes. PostgreSQL owns progress; no external checkpoint needs saving.</returns>
     [DisplayName("Convert GraphQL Result")]
     public static Task<ConversionResult> ConvertGraphQlResult(
         [PropertyTab] ConvertInput input,
@@ -76,7 +97,7 @@ public class Main
     /// <param name="input">Reservation fingerprint and durable delivery evidence.</param>
     /// <param name="database">Same database and SourceSystem used by conversion.</param>
     /// <param name="cancellationToken">Cancellation from Frends.</param>
-    /// <returns>Confirmed delivery and its checkpoint. This does not confirm Raindance import.</returns>
+    /// <returns>Confirmed delivery and the checkpoint committed atomically in PostgreSQL. This does not confirm Raindance import.</returns>
     [DisplayName("Confirm Invoice Delivery")]
     public static Task<DeliveryResult> ConfirmInvoiceDelivery(
         [PropertyTab] DeliveryConfirmation input,
@@ -84,7 +105,7 @@ public class Main
         CancellationToken cancellationToken = default) => InvoiceTracking.ConfirmAsync(input, database, cancellationToken);
 
     // Untracked rendering is internal and used only for local previews/format tests.
-    internal static ConversionResult ConvertCore(ConvertInput input, CancellationToken cancellationToken = default)
+    internal static ConversionResult ConvertCore(PreviewInput input, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(input);
         var inputCheckpoint = ParseCheckpoint(input.LastLocalId);
@@ -120,7 +141,7 @@ public class Main
             resultFile: raindanceBytes,
             info: invoiceCount == 0
                 ? "No new invoice rows. The input checkpoint is unchanged."
-                : "GraphQL response converted to Raindance. Persist LastLocalId only after successful file delivery.",
+                : "Diagnostic preview only. No invoice reservation or database checkpoint was changed.",
             lastLocalId: lastLocalId)
         {
             Filename = "300K24_" + DateTime.Now.ToString("yyyyMMdd_HHmmss", CultureInfo.InvariantCulture) + ".txt"

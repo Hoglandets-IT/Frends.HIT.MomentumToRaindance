@@ -83,8 +83,30 @@ internal static class Fixture
         }
     }.ToString(Formatting.None);
 
+    public static string CompleteEnvelope(params JObject[] nodes) => new JObject
+    {
+        ["data"] = new JObject
+        {
+            ["ledgerNoteAccountingsSync"] = new JObject
+            {
+                ["nodes"] = new JArray(nodes),
+                ["totalCount"] = nodes.Length,
+                ["pageInfo"] = new JObject { ["hasNextPage"] = false, ["endCursor"] = null }
+            }
+        }
+    }.ToString(Formatting.None);
+
+    public static async Task<ConvertInput> RegisteredInputAsync(InvoiceTrackingConnection database,
+        CancellationToken cancellationToken, params JObject[] nodes)
+    {
+        var checkpoint = await InvoiceTracking.ReadCheckpointAsync(database, cancellationToken);
+        var json = CompleteEnvelope(nodes);
+        var fetchId = await InvoiceTracking.RegisterFetchAsync(json, checkpoint, database, cancellationToken);
+        return new ConvertInput { GraphQlResult = json, FetchId = fetchId };
+    }
+
     public static ConversionResult Convert(int lastLocalId = 0, params JObject[] nodes) =>
-        Main.ConvertCore(new ConvertInput
+        Main.ConvertCore(new PreviewInput
         {
             LastLocalId = lastLocalId,
             GraphQlResult = Envelope(nodes)

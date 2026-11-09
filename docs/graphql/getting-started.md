@@ -56,6 +56,14 @@ The HTTP JSON body is an object with `query` containing the query text and `vari
 
 Do not select a date, customer, amount, or status filter for the durable production feed just because a debugging report needs that filter. First fetch the approved feed correctly; isolate one-off report filtering from the delivery checkpoint and permanent reservation history.
 
+## Production task wiring
+
+The diagnostic query above accepts a manually chosen cursor; the production **Fetch Ledger Note Accountings** task does not. Give Fetch both the Momentum API connection and the same `InvoiceTrackingConnection`/`SourceSystem` used by Convert and Confirm. Fetch reads `sources.last_local_id` from PostgreSQL, traverses every page using a fixed lower bound and opaque `after` cursors, and registers a complete-response receipt.
+
+Pass Fetch's `ResultFile` string unchanged to Convert's `GraphQlResult`, and its `FetchId` to Convert's matching input. The receipt contains the source, cursor range, node count, and SHA-256 of the exact UTF-8 JSON, not raw customer data. Convert rejects changed JSON, a wrong-source receipt, or progress that became stale after fetching. Inspection is fine; filtering, reformatting, and transformation require a separate diagnostic copy and cannot be fed back into production conversion.
+
+PostgreSQL is the sole progress store. Convert advances fully validated no-file batches atomically; new invoices remain at the previous committed cursor until successful file delivery is confirmed. Confirm stores delivery evidence and the new cursor in one transaction. Remove Frends KV read/write steps and external `LastLocalId` inputs when upgrading to schema `004_database_checkpoint`. See the [task setup](../../README.md#frends-process-setup) and [coordinated upgrade](../../database/README.md#upgrading-to-database-owned-progress).
+
 ## Reading types and nulls
 
 Examples from this schema:
@@ -77,7 +85,7 @@ GraphQL can return an HTTP-success response that still includes `errors`, and a 
 
 Keep authentication and schema errors separate from an empty successful `nodes` list. Record safe context such as operation name, counts, local checkpoint, request correlation ID if available, and sanitized error category. Never log credentials or raw invoice JSON as routine diagnostics.
 
-A failed **read** can be retried without intentionally changing remote accounting state, but fetching again is not permission to re-deliver an invoice. Local reservation and delivery-confirmation checks still govern whether bytes can be released.
+A failed **read** can be retried without intentionally changing remote accounting state, but fetching again is not permission to re-deliver an invoice. Incomplete fetches do not advance database progress. An unresolved reservation blocks both Fetch and Convert; investigate delivery evidence rather than repeating the writer. A complete fetch receipt is not itself delivery evidence.
 
 ## Ask the API what it supports
 

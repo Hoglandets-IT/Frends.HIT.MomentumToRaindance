@@ -23,14 +23,17 @@ $check$;
 GRANT USAGE ON SCHEMA momentum_raindance TO :"runtime_role";
 GRANT EXECUTE ON FUNCTION momentum_raindance.is_canonical_identity(text) TO :"runtime_role";
 GRANT SELECT ON momentum_raindance.schema_migrations, momentum_raindance.sources,
-    momentum_raindance.deliveries, momentum_raindance.invoices TO :"runtime_role";
+    momentum_raindance.deliveries, momentum_raindance.invoices, momentum_raindance.fetch_batches TO :"runtime_role";
 -- SELECT ... FOR UPDATE requires UPDATE on at least one column. The source
--- trigger rejects changing created_at, so this allows locking, not activation.
-GRANT UPDATE (created_at) ON momentum_raindance.sources TO :"runtime_role";
+-- trigger rejects identity/activation changes and guards forward-only progress.
+-- Retain created_at locking permission for compatibility with earlier grants.
+GRANT UPDATE (created_at, last_local_id) ON momentum_raindance.sources TO :"runtime_role";
 -- Remove any broader grants from an earlier release of this script before
 -- granting only runtime columns; historical imports remain an operator action.
-REVOKE INSERT ON momentum_raindance.deliveries, momentum_raindance.invoices FROM :"runtime_role";
-GRANT INSERT (delivery_id, source_system, filename, content_sha256, byte_count, invoice_count, last_local_id, status)
+REVOKE INSERT ON momentum_raindance.deliveries, momentum_raindance.invoices, momentum_raindance.fetch_batches FROM :"runtime_role";
+GRANT INSERT (fetch_id, source_system, from_local_id, through_local_id, node_count, payload_sha256)
+    ON momentum_raindance.fetch_batches TO :"runtime_role";
+GRANT INSERT (delivery_id, source_system, filename, content_sha256, byte_count, invoice_count, last_local_id, status, fetch_id)
     ON momentum_raindance.deliveries TO :"runtime_role";
 GRANT INSERT (source_system, ledger_note_id, first_local_id, node_id, invoice_number, ledger_note_number, content_sha256, delivery_id,
     source_created_at, due_date, invoice_billed_date, accounting_event_created_at, accounting_approved_at)

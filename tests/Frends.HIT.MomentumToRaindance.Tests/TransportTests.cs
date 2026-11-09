@@ -13,7 +13,7 @@ public class TransportTests
         {"completed":{"accessToken":"test-access-token","expiresInSeconds":3600}}
         """;
     internal const string EmptyResponse = """
-        {"data":{"ledgerNoteAccountingsSync":{"nodes":[]}},"extensions":{"opaque":"2026-09-01T00:00:00.123+02:00","amount":123456789012.345678}}
+        {"data":{"ledgerNoteAccountingsSync":{"nodes":[],"totalCount":0,"pageInfo":{"hasNextPage":false,"endCursor":null}}},"extensions":{"opaque":"2026-09-01T00:00:00.123+02:00","amount":123456789012.345678}}
         """;
 
     [Theory]
@@ -50,13 +50,14 @@ public class TransportTests
         Assert.Equal("https://example.invalid/graphql", requests[1].Uri);
         Assert.Equal("Bearer test-access-token", requests[1].Authorization);
         var query = (string?)requests[1].Body["query"];
-        Assert.Contains("query LedgerNoteAccountingsSync($lastLocalId: Long!)", query);
-        Assert.Contains("ledgerNoteAccountingsSync(lastLocalId: $lastLocalId)", query);
+        Assert.Contains("query LedgerNoteAccountingsSync($lastLocalId: Long!, $after: String)", query);
+        Assert.Contains("ledgerNoteAccountingsSync(lastLocalId: $lastLocalId, after: $after)", query);
         Assert.DoesNotContain("__LAST_LOCAL_ID__", query);
         var variables = Assert.IsType<JObject>(requests[1].Body["variables"]);
-        Assert.Single(variables);
+        Assert.Equal(2, variables.Count);
         Assert.Equal(JTokenType.Integer, variables["lastLocalId"]!.Type);
         Assert.Equal(lastLocalId, (int)variables["lastLocalId"]!);
+        Assert.Equal(JTokenType.Null, variables["after"]!.Type);
         Assert.Matches(@"transactionCreated\s*\{\s*change\s*\{\s*statusCreated\s*\}\s*statusApproved\s*\}", query!);
         Assert.Matches(@"invoice\s*\{\s*number\s+billed\s+creditInvoice", query!);
         Assert.Matches(@"id\s+statusCreated\s+refersToPeriodDisplayName", query!);
@@ -64,10 +65,10 @@ public class TransportTests
     }
 
     [Fact]
-    public async Task Fetch_preserves_metadata_and_page_information_without_implicitly_fetching_more_pages()
+    public async Task Fetch_preserves_metadata_and_complete_page_information()
     {
         const string payload = """
-            {"data":{"ledgerNoteAccountingsSync":{"totalCount":2,"pageInfo":{"hasNextPage":true,"endCursor":"MA=="},"nodes":[{"id":"test-accounting-id","localId":1,"transactionCreated":{"change":{"statusCreated":"2026-09-09T10:00:00.123+02:00"},"statusApproved":"2026-09-09T10:01:00+02:00"},"ledgerNote":{"id":"test-note-id","statusCreated":"2026-09-08T08:00:00.456+02:00","invoice":{"billed":"2026-09-09"}}}]}}}
+            {"data":{"ledgerNoteAccountingsSync":{"totalCount":1,"pageInfo":{"hasNextPage":false,"endCursor":"MA=="},"nodes":[{"id":"test-accounting-id","localId":1,"transactionCreated":{"change":{"statusCreated":"2026-09-09T10:00:00.123+02:00"},"statusApproved":"2026-09-09T10:01:00+02:00"},"ledgerNote":{"id":"test-note-id","statusCreated":"2026-09-08T08:00:00.456+02:00","invoice":{"billed":"2026-09-09"}}}]}}}
             """;
         var requestCount = 0;
         using var httpClient = new HttpClient(new FakeHandler((_, _) => Task.FromResult(JsonResponse(
@@ -79,7 +80,7 @@ public class TransportTests
         Assert.True(result.Success);
         Assert.Equal(0, result.LastLocalId);
         Assert.Single(JObject.Parse(result.ResultFile)["data"]!["ledgerNoteAccountingsSync"]!["nodes"]!);
-        Assert.Equal(2, requestCount); // One authentication and one GraphQL response; no automatic page drain.
+        Assert.Equal(2, requestCount);
         Assert.True(JToken.DeepEquals(JObject.Parse(payload), JObject.Parse(result.ResultFile)));
         Assert.Contains("2026-09-09T10:00:00.123+02:00", result.ResultFile);
         Assert.Contains("2026-09-08T08:00:00.456+02:00", result.ResultFile);
@@ -88,7 +89,7 @@ public class TransportTests
     [Fact]
     public async Task Fetching_new_nodes_does_not_acknowledge_their_delivery()
     {
-        var payload = Fixture.Envelope(Fixture.Node(localId: 900));
+        var payload = PageResponse(1, false, "final", Fixture.Node(localId: 900));
         var requestCount = 0;
         using var httpClient = new HttpClient(new FakeHandler((_, _) => Task.FromResult(JsonResponse(
             ++requestCount == 1 ? AuthenticationResponse : payload))));
@@ -354,7 +355,7 @@ public class TransportTests
         Password = "test-api-key"
     };
 
-    private static MomentumClient Client(HttpClient httpClient) => new(new MomentumApiConfiguration
+    internal static MomentumClient Client(HttpClient httpClient) => new(new MomentumApiConfiguration
     {
         AuthUrl = "https://example.invalid/auth",
         GraphQlUrl = "https://example.invalid/graphql",
@@ -366,6 +367,17 @@ public class TransportTests
     {
         Content = new StringContent(payload, Encoding.UTF8, "application/json")
     };
+
+    internal static string PageResponse(int totalCount, bool hasNextPage, string? endCursor, params JObject[] nodes) =>
+        new JObject {
+            ["data"] = new JObject {
+                ["ledgerNoteAccountingsSync"] = new JObject {
+                    ["totalCount"] = totalCount,
+                    ["pageInfo"] = new JObject { ["hasNextPage"] = hasNextPage, ["endCursor"] = endCursor },
+                    ["nodes"] = new JArray(nodes)
+                }
+            }
+        }.ToString(Formatting.None);
 
     internal sealed class FakeHandler(Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> send)
         : HttpMessageHandler

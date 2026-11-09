@@ -1,5 +1,5 @@
-query LedgerNoteAccountingsSync($lastLocalId: Long!) {
-  ledgerNoteAccountingsSync(lastLocalId: $lastLocalId) {
+query LedgerNoteAccountingsSync($lastLocalId: Long!, $after: String) {
+  ledgerNoteAccountingsSync(lastLocalId: $lastLocalId, after: $after) {
     totalCount
     pageInfo {
       hasNextPage

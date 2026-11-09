@@ -56,7 +56,9 @@ A duplicate with unchanged Raindance content remains suppressed even if these da
 
 `invoices.recorded_at` is when this integration recorded the invoice locally. `deliveries.created_at` is the local reservation time. Neither means the invoice was created in Momentum. Likewise, a stored `delivered_at` records the integration's delivery confirmation; it does not establish a source creation date.
 
-Apply the migration before running the updated converter, which requires schema `003_invoice_metadata`. Use the existing database login; a separate login is not required. Installations that deliberately use the optional restricted-runtime grants must reapply the updated grant helper after migrating. Follow the [database setup and upgrade instructions](../../database/README.md); do not edit applied migrations or clear invoice history.
+Migration 003 introduced these fields. The current tasks additionally require **`004_database_checkpoint`** for database-owned progress and complete-fetch receipts. Use the existing database login on Fetch, Convert, and Confirm; a separate login is not required. Installations using optional restricted-runtime grants must reapply the updated helper after migrating. Follow the [coordinated upgrade](../../database/README.md#upgrading-to-database-owned-progress); do not edit applied migrations, clear invoice history, or backfill historical metadata as part of that upgrade.
+
+The source cursor and receipt range are accounting-feed state, not dates inferred from these snapshots. Fetch reads its cursor from PostgreSQL, and only validated no-file conversion or successful delivery confirmation advances it. Neither creation/billing dates nor a Frends KV value can override that progress.
 
 This describes the repository's metadata change. It does not assert that any deployed Frends package or production database has already been upgraded.
 

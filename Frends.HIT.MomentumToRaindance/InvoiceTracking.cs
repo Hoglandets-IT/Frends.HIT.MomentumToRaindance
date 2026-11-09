@@ -1,5 +1,8 @@
 using System.Globalization;
 using System.Security.Cryptography;
+using System.Text;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using Npgsql;
 using NpgsqlTypes;
 
@@ -9,6 +12,79 @@ namespace Frends.HIT.MomentumToRaindance;
 internal static class InvoiceTracking
 {
     private sealed record Candidate(LedgerNoteAccountingNode Node, string Id, byte[] Bytes, string Hash);
+    private sealed record FetchReceipt(int From, int Through, int NodeCount, string Hash);
+
+    internal static async Task<int> ReadCheckpointAsync(InvoiceTrackingConnection database, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(database);
+        database.Validate();
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(database.TimeoutSeconds));
+        var token = timeout.Token;
+        var connectionString = await database.ResolveAsync(token).ConfigureAwait(false);
+        try
+        {
+            await using var connection = new NpgsqlConnection(connectionString);
+            await connection.OpenAsync(token).ConfigureAwait(false);
+            await using var transaction = await connection.BeginTransactionAsync(token).ConfigureAwait(false);
+            var checkpoint = await LockSourceAsync(connection, transaction, database.SourceSystem, token).ConfigureAwait(false);
+            await EnsureNoOutstandingAsync(connection, transaction, database.SourceSystem, token).ConfigureAwait(false);
+            await transaction.CommitAsync(token).ConfigureAwait(false);
+            return checkpoint;
+        }
+        catch (NpgsqlException)
+        {
+            throw DatabaseFailure();
+        }
+    }
+
+    internal static async Task<string> RegisterFetchAsync(string graphQlResult, int expectedCheckpoint,
+        InvoiceTrackingConnection database, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(database);
+        database.Validate();
+        ArgumentOutOfRangeException.ThrowIfNegative(expectedCheckpoint);
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(database.TimeoutSeconds));
+        var token = timeout.Token;
+        token.ThrowIfCancellationRequested();
+        var response = Main.DeserializeGraphQlResult(graphQlResult);
+        var nodes = response.Data!.LedgerNoteAccountingsSync!.Nodes;
+        ValidateCompleteEnvelope(graphQlResult, nodes.Count);
+        var through = expectedCheckpoint;
+        foreach (var node in nodes)
+        {
+            token.ThrowIfCancellationRequested();
+            if (node?.LocalId is not int localId || localId <= through)
+                throw new InvalidOperationException("A complete fetch must contain unique, increasing local IDs above the database checkpoint.");
+            through = localId;
+        }
+        var payloadHash = Hash(Encoding.UTF8.GetBytes(graphQlResult));
+        var connectionString = await database.ResolveAsync(token).ConfigureAwait(false);
+        try
+        {
+            await using var connection = new NpgsqlConnection(connectionString);
+            await connection.OpenAsync(token).ConfigureAwait(false);
+            await using var transaction = await connection.BeginTransactionAsync(token).ConfigureAwait(false);
+            var checkpoint = await LockSourceAsync(connection, transaction, database.SourceSystem, token).ConfigureAwait(false);
+            await EnsureNoOutstandingAsync(connection, transaction, database.SourceSystem, token).ConfigureAwait(false);
+            RequireCheckpoint(checkpoint, expectedCheckpoint);
+            var id = Guid.NewGuid();
+            await using var insert = Command(connection, transaction,
+                """
+                INSERT INTO momentum_raindance.fetch_batches
+                (fetch_id,source_system,from_local_id,through_local_id,node_count,payload_sha256)
+                VALUES ($1,$2,$3,$4,$5,$6)
+                """, id, database.SourceSystem, expectedCheckpoint, through, nodes.Count, payloadHash);
+            await insert.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+            await transaction.CommitAsync(token).ConfigureAwait(false);
+            return id.ToString("D");
+        }
+        catch (NpgsqlException)
+        {
+            throw DatabaseFailure();
+        }
+    }
 
     internal static async Task<ConversionResult> PrepareAsync(ConvertInput input, InvoiceTrackingConnection database,
         CancellationToken cancellationToken)
@@ -16,7 +92,8 @@ internal static class InvoiceTracking
         ArgumentNullException.ThrowIfNull(input);
         ArgumentNullException.ThrowIfNull(database);
         database.Validate();
-        var checkpoint = Main.ParseCheckpoint(input.LastLocalId);
+        if (!Guid.TryParseExact(input.FetchId, "D", out var fetchId) || fetchId == Guid.Empty)
+            throw new ArgumentException("FetchId must identify a complete Fetch Ledger Note Accountings result from this database/source.");
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(TimeSpan.FromSeconds(database.TimeoutSeconds));
         var token = timeout.Token;
@@ -27,18 +104,15 @@ internal static class InvoiceTracking
         var candidates = new List<Candidate>();
         var localIds = new HashSet<int>();
         var invoiceIds = new HashSet<string>(StringComparer.Ordinal);
-        var highest = checkpoint;
+        var payloadHash = Hash(Encoding.UTF8.GetBytes(input.GraphQlResult));
         foreach (var node in response.Data!.LedgerNoteAccountingsSync!.Nodes)
         {
             token.ThrowIfCancellationRequested();
             if (node?.LocalId is not int localId || localId <= 0)
                 throw new InvalidOperationException("Every Momentum node must have a positive localId.");
-            if (localId <= checkpoint)
-                continue;
             if (!localIds.Add(localId))
                 throw new InvalidOperationException("Momentum returned duplicate pending local IDs.");
             Main.ValidateNode(node);
-            highest = Math.Max(highest, localId);
             var bytes = RaindanceWriter.ToBytes(Envelope(new[] { node }), token);
             if (bytes.Length == 0)
                 continue;
@@ -57,13 +131,12 @@ internal static class InvoiceTracking
             await using var connection = new NpgsqlConnection(connectionString);
             await connection.OpenAsync(token).ConfigureAwait(false);
             await using var transaction = await connection.BeginTransactionAsync(token).ConfigureAwait(false);
-            await LockSourceAsync(connection, transaction, database.SourceSystem, token).ConfigureAwait(false);
-            await using (var outstanding = Command(connection, transaction,
-                "SELECT delivery_id FROM momentum_raindance.deliveries WHERE source_system=$1 AND status='reserved' LIMIT 1", database.SourceSystem))
-            {
-                if (await outstanding.ExecuteScalarAsync(token).ConfigureAwait(false) is Guid deliveryId)
-                    throw new InvalidOperationException($"Source has unresolved delivery {deliveryId:D}. No file is returned. Reconcile delivery evidence and confirm it; do not resend or reset the reservation.");
-            }
+            var checkpoint = await LockSourceAsync(connection, transaction, database.SourceSystem, token).ConfigureAwait(false);
+            await EnsureNoOutstandingAsync(connection, transaction, database.SourceSystem, token).ConfigureAwait(false);
+            var receipt = await ReadReceiptAsync(connection, transaction, database.SourceSystem, fetchId, token).ConfigureAwait(false);
+            RequireCheckpoint(checkpoint, receipt.From);
+            if (payloadHash != receipt.Hash || response.Data.LedgerNoteAccountingsSync.Nodes.Count != receipt.NodeCount)
+                throw new InvalidOperationException("GraphQL JSON does not match the immutable fetch receipt. Pass the exact, complete Fetch result without filtering or editing it.");
 
             var selected = new List<Candidate>();
             var skipped = 0;
@@ -84,12 +157,13 @@ internal static class InvoiceTracking
                 skipped++;
             }
 
-            var nextCheckpoint = candidates.Count == 0 ? checkpoint : highest;
+            var nextCheckpoint = receipt.Through;
             if (selected.Count == 0)
             {
+                await AdvanceCheckpointAsync(connection, transaction, database.SourceSystem, checkpoint, nextCheckpoint, token).ConfigureAwait(false);
                 await transaction.CommitAsync(token).ConfigureAwait(false);
                 return new ConversionResult(true, 0, Array.Empty<byte>(),
-                    "No unrecorded invoices. No file or reservation created.", nextCheckpoint) { SkippedInvoiceCount = skipped };
+                    "Complete fetch reconciled. Database checkpoint saved; no file or reservation created.", nextCheckpoint) { SkippedInvoiceCount = skipped };
             }
 
             using var stream = new MemoryStream();
@@ -99,7 +173,7 @@ internal static class InvoiceTracking
             var hash = Hash(payload);
             var reservationId = Guid.NewGuid();
             var filename = await InsertDeliveryAsync(connection, transaction, database.SourceSystem, reservationId,
-                hash, payload.Length, selected.Count, nextCheckpoint, token).ConfigureAwait(false);
+                hash, payload.Length, selected.Count, nextCheckpoint, fetchId, token).ConfigureAwait(false);
 
             foreach (var item in selected)
             {
@@ -135,7 +209,7 @@ internal static class InvoiceTracking
         }
         catch (NpgsqlException)
         {
-            throw new InvalidOperationException("Invoice-tracking database operation failed. No file was returned. Check connectivity, migrations and permissions; inspect outstanding reservations before retrying. Database details are withheld to protect credentials and invoice data.");
+            throw DatabaseFailure();
         }
     }
 
@@ -159,13 +233,14 @@ internal static class InvoiceTracking
             await using var connection = new NpgsqlConnection(connectionString);
             await connection.OpenAsync(token).ConfigureAwait(false);
             await using var transaction = await connection.BeginTransactionAsync(token).ConfigureAwait(false);
-            await LockSourceAsync(connection, transaction, database.SourceSystem, token).ConfigureAwait(false);
+            var committedCheckpoint = await LockSourceAsync(connection, transaction, database.SourceSystem, token).ConfigureAwait(false);
             int count;
             int checkpoint;
             string status;
             string? reference;
+            Guid? fetchId;
             await using (var select = Command(connection, transaction,
-                "SELECT filename,content_sha256,invoice_count,last_local_id,status,delivery_reference FROM momentum_raindance.deliveries WHERE source_system=$1 AND delivery_id=$2 FOR UPDATE",
+                "SELECT filename,content_sha256,invoice_count,last_local_id,status,delivery_reference,fetch_id FROM momentum_raindance.deliveries WHERE source_system=$1 AND delivery_id=$2 FOR UPDATE",
                 database.SourceSystem, id))
             await using (var reader = await select.ExecuteReaderAsync(token).ConfigureAwait(false))
             {
@@ -177,21 +252,37 @@ internal static class InvoiceTracking
                 checkpoint = reader.GetInt32(3);
                 status = reader.GetString(4);
                 reference = reader.IsDBNull(5) ? null : reader.GetString(5);
+                fetchId = reader.IsDBNull(6) ? null : reader.GetGuid(6);
             }
             if (status == "reserved")
             {
+                FetchReceipt? receipt = null;
+                if (fetchId is Guid receiptId)
+                {
+                    receipt = await ReadReceiptAsync(connection, transaction, database.SourceSystem, receiptId, token).ConfigureAwait(false);
+                    RequireCheckpoint(committedCheckpoint, receipt.From);
+                    if (receipt.Through != checkpoint)
+                        throw new InvalidOperationException("Delivery checkpoint does not match its complete-fetch receipt; reconcile the database before confirmation.");
+                }
                 await using var update = Command(connection, transaction,
                     "UPDATE momentum_raindance.deliveries SET status='delivered',delivered_at=clock_timestamp(),delivery_reference=$3 WHERE source_system=$1 AND delivery_id=$2 AND status='reserved'",
                     database.SourceSystem, id, input.DeliveryReference);
                 if (await update.ExecuteNonQueryAsync(token).ConfigureAwait(false) != 1)
                     throw new InvalidOperationException("Delivery confirmation did not update exactly one reservation.");
+                // Legacy reservations have no complete-fetch proof and cannot move progress.
+                if (receipt is not null)
+                {
+                    await AdvanceCheckpointAsync(connection, transaction, database.SourceSystem,
+                        committedCheckpoint, receipt.Through, token).ConfigureAwait(false);
+                    committedCheckpoint = receipt.Through;
+                }
             }
             else if (status != "delivered")
                 throw new InvalidOperationException("Unexpected delivery status; reconciliation is required.");
             else if (reference != input.DeliveryReference)
                 throw new InvalidOperationException("Delivery is already confirmed with different evidence. Existing delivery evidence is immutable.");
             await transaction.CommitAsync(token).ConfigureAwait(false);
-            return new DeliveryResult { Success = true, DeliveryId = id.ToString("D"), NodeCount = count, LastLocalId = checkpoint };
+            return new DeliveryResult { Success = true, DeliveryId = id.ToString("D"), NodeCount = count, LastLocalId = committedCheckpoint };
         }
         catch (NpgsqlException)
         {
@@ -199,7 +290,7 @@ internal static class InvoiceTracking
         }
     }
 
-    private static async Task LockSourceAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, string source, CancellationToken token)
+    private static async Task<int> LockSourceAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, string source, CancellationToken token)
     {
         // A session/role default must not acknowledge a reservation before WAL is durable.
         await using (var durability = Command(connection, transaction, "SET LOCAL synchronous_commit = on"))
@@ -208,17 +299,78 @@ internal static class InvoiceTracking
         await using (var version = Command(connection, transaction,
             "SELECT version FROM momentum_raindance.schema_migrations ORDER BY version DESC LIMIT 1"))
         {
-            if (await version.ExecuteScalarAsync(token).ConfigureAwait(false) is not string schemaVersion || schemaVersion != "003_invoice_metadata")
+            if (await version.ExecuteScalarAsync(token).ConfigureAwait(false) is not string schemaVersion || schemaVersion != "004_database_checkpoint")
                 throw new InvalidOperationException("Unsupported invoice-tracking schema. Run the matching offline migrations before enabling delivery.");
         }
         await using var command = Command(connection, transaction,
-            "SELECT activated_at IS NOT NULL AND NULLIF(btrim(baseline_reference),'') IS NOT NULL FROM momentum_raindance.sources WHERE source_system=$1 FOR UPDATE", source);
-        if (await command.ExecuteScalarAsync(token).ConfigureAwait(false) is not true)
+            "SELECT last_local_id FROM momentum_raindance.sources WHERE source_system=$1 AND activated_at IS NOT NULL AND NULLIF(btrim(baseline_reference),'') IS NOT NULL FOR UPDATE", source);
+        if (await command.ExecuteScalarAsync(token).ConfigureAwait(false) is not int checkpoint)
             throw new InvalidOperationException("SourceSystem is not registered and activated. Reconcile/seed historical invoices and activate the source offline before any delivery.");
+        return checkpoint;
     }
 
+    private static async Task EnsureNoOutstandingAsync(NpgsqlConnection connection, NpgsqlTransaction transaction,
+        string source, CancellationToken token)
+    {
+        await using var outstanding = Command(connection, transaction,
+            "SELECT delivery_id FROM momentum_raindance.deliveries WHERE source_system=$1 AND status='reserved' LIMIT 1", source);
+        if (await outstanding.ExecuteScalarAsync(token).ConfigureAwait(false) is Guid deliveryId)
+            throw new InvalidOperationException($"Source has unresolved delivery {deliveryId:D}. No file is returned. Reconcile delivery evidence and confirm it; do not resend or reset the reservation.");
+    }
+
+    private static async Task<FetchReceipt> ReadReceiptAsync(NpgsqlConnection connection, NpgsqlTransaction transaction,
+        string source, Guid fetchId, CancellationToken token)
+    {
+        await using var select = Command(connection, transaction,
+            "SELECT from_local_id,through_local_id,node_count,payload_sha256 FROM momentum_raindance.fetch_batches WHERE source_system=$1 AND fetch_id=$2", source, fetchId);
+        await using var reader = await select.ExecuteReaderAsync(token).ConfigureAwait(false);
+        if (!await reader.ReadAsync(token).ConfigureAwait(false))
+            throw new InvalidOperationException("Fetch receipt was not found for this database and SourceSystem. Fetch a complete batch again.");
+        return new FetchReceipt(reader.GetInt32(0), reader.GetInt32(1), reader.GetInt32(2), reader.GetString(3));
+    }
+
+    private static void RequireCheckpoint(int actual, int expected)
+    {
+        if (actual != expected)
+            throw new InvalidOperationException("The database checkpoint changed after fetching. No file was reserved; fetch a fresh complete batch.");
+    }
+
+    private static async Task AdvanceCheckpointAsync(NpgsqlConnection connection, NpgsqlTransaction transaction,
+        string source, int expected, int through, CancellationToken token)
+    {
+        if (through < expected)
+            throw new InvalidOperationException("A complete-fetch checkpoint cannot move backwards.");
+        if (through == expected)
+            return;
+        await using var update = Command(connection, transaction,
+            "UPDATE momentum_raindance.sources SET last_local_id=$3 WHERE source_system=$1 AND last_local_id=$2", source, expected, through);
+        if (await update.ExecuteNonQueryAsync(token).ConfigureAwait(false) != 1)
+            throw new InvalidOperationException("The database checkpoint changed. No progress was committed.");
+    }
+
+    private static void ValidateCompleteEnvelope(string payload, int nodeCount)
+    {
+        try
+        {
+            var root = JObject.Parse(payload, new JsonLoadSettings { DuplicatePropertyNameHandling = DuplicatePropertyNameHandling.Error });
+            var sync = root["data"]?["ledgerNoteAccountingsSync"];
+            var hasNextPage = sync?["pageInfo"]?["hasNextPage"];
+            var total = sync?["totalCount"];
+            if (hasNextPage?.Type != JTokenType.Boolean || hasNextPage.Value<bool>()
+                || total?.Type != JTokenType.Integer || total.Value<long>() != nodeCount)
+                throw new InvalidOperationException("Fetch receipt requires the complete merged feed, hasNextPage=false, and totalCount matching its nodes.");
+        }
+        catch (Exception exception) when (exception is JsonException or OverflowException or FormatException)
+        {
+            throw new InvalidOperationException("Complete-fetch metadata is invalid. No receipt was recorded.");
+        }
+    }
+
+    private static InvalidOperationException DatabaseFailure() =>
+        new("Invoice-tracking database operation failed. No file was returned. Check connectivity, migrations and permissions; inspect outstanding reservations before retrying. Database details are withheld to protect credentials and invoice data.");
+
     private static async Task<string> InsertDeliveryAsync(NpgsqlConnection connection, NpgsqlTransaction transaction,
-        string source, Guid id, string hash, int length, int count, int checkpoint, CancellationToken token)
+        string source, Guid id, string hash, int length, int count, int checkpoint, Guid fetchId, CancellationToken token)
     {
         var timestamp = DateTime.Now;
         // Keep the existing filename format while reserving unique seconds across sources/processes.
@@ -228,9 +380,9 @@ internal static class InvoiceTracking
             await using var command = Command(connection, transaction,
                 """
                 INSERT INTO momentum_raindance.deliveries
-                (delivery_id,source_system,filename,content_sha256,byte_count,invoice_count,last_local_id,status)
-                VALUES ($1,$2,$3,$4,$5,$6,$7,'reserved') ON CONFLICT (filename) DO NOTHING
-                """, id, source, filename, hash, length, count, checkpoint);
+                (delivery_id,source_system,filename,content_sha256,byte_count,invoice_count,last_local_id,status,fetch_id)
+                VALUES ($1,$2,$3,$4,$5,$6,$7,'reserved',$8) ON CONFLICT (filename) DO NOTHING
+                """, id, source, filename, hash, length, count, checkpoint, fetchId);
             if (await command.ExecuteNonQueryAsync(token).ConfigureAwait(false) == 1)
                 return filename;
         }

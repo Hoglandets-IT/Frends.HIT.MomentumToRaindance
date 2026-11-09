@@ -215,9 +215,11 @@ public sealed class MetadataTests
         return node;
     }
 
-    private static Task<ConversionResult> ConvertAsync(InvoiceTrackingConnection database, JObject invoice) =>
-        Main.ConvertGraphQlResult(new ConvertInput { GraphQlResult = Fixture.Envelope(invoice) }, database,
-            TestContext.Current.CancellationToken);
+    private static async Task<ConversionResult> ConvertAsync(InvoiceTrackingConnection database, JObject invoice)
+    {
+        var input = await Fixture.RegisteredInputAsync(database, TestContext.Current.CancellationToken, invoice);
+        return await Main.ConvertGraphQlResult(input, database, TestContext.Current.CancellationToken);
+    }
 
     private sealed record Snapshot(DateTime? SourceCreatedAt, DateOnly? DueDate, DateOnly? InvoiceBilledDate,
         DateTime? AccountingEventCreatedAt, DateTime? AccountingApprovedAt);

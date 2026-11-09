@@ -69,7 +69,8 @@ Pause exports. Back up the database before upgrading an existing installation. R
 | Object in `momentum_raindance` | Purpose |
 | --- | --- |
 | `schema_migrations` | Applied migration versions and checksums. |
-| `sources` | Registered Momentum datasets and their activation evidence. |
+| `sources` | Registered Momentum datasets, activation evidence, and committed `last_local_id`. |
+| `fetch_batches` | Immutable receipts binding a complete fetched JSON response to its source and cursor range. |
 | `invoices` | Permanent invoice identities that must not be emitted again. |
 | `deliveries` | Reserved files, fingerprints and delivery confirmations. |
 
@@ -82,13 +83,13 @@ Verify the installation (refresh the schema list in your database client if nece
 if ($LASTEXITCODE -ne 0) { throw 'Schema verification failed. Stop here.' }
 ```
 
-For this release, expect `001_invoice_tracking`, `002_canonical_identities`, and `003_invoice_metadata`. Re-running migrations checks existing versions and applies only pending migrations; it does not clear data.
+For this release, expect `001_invoice_tracking`, `002_canonical_identities`, `003_invoice_metadata`, and `004_database_checkpoint`. Re-running migrations checks existing versions and applies only pending migrations; it does not clear data.
 
 **Do not run `grant-runtime` for your same-login setup.** The account that creates these objects owns them and already has access.
 
 ### 4. Register the Momentum dataset
 
-Choose one permanent name, and use exactly the same value later in both Frends tasks:
+Choose one permanent name, and use exactly the same value later in all three Frends tasks:
 
 ```powershell
 $source = 'momentum-nassjo-production'
@@ -134,7 +135,7 @@ The source must now have an activation timestamp and the correct baseline eviden
 
 ### 6. Configure Frends with the same database and login
 
-On **Convert GraphQL Result** and **Confirm Invoice Delivery**, fill in the **Invoice tracking database** tab. Fetch does not need a tracking-database connection.
+On **Fetch Ledger Note Accountings**, **Convert GraphQL Result**, and **Confirm Invoice Delivery**, fill in the **Invoice tracking database** tab. Fetch needs this connection to read database progress and record its complete-response receipt.
 
 For `ConfigurationSource = Manual`, set `ConnectionString` to the following with your actual values:
 
@@ -142,7 +143,7 @@ For `ConfigurationSource = Manual`, set `ConnectionString` to the following with
 Host=YOUR_POSTGRES_HOST;Port=5432;Database=YOUR_EXISTING_DATABASE;Username=YOUR_EXISTING_LOGIN;Password=YOUR_PASSWORD;SSL Mode=VerifyFull
 ```
 
-Set `SourceSystem` to exactly the value registered at step 4 on both tasks. Use connection-string quoting for passwords containing delimiters; store real credentials only in the protected configuration.
+Set `SourceSystem` to exactly the value registered at step 4 on all three tasks. Use connection-string quoting for passwords containing delimiters; store real credentials only in the protected configuration.
 
 For canonical `HcpVault`, put this object in your database secret and set `VaultPath` to that secret's path instead:
 
@@ -156,7 +157,7 @@ The `Json` option accepts the same object in `JsonConfiguration`. These are **th
 
 The agent must trust the server's certificate. If using a private CA, install trust there or configure Npgsql's `Root Certificate` path to a certificate accessible **on the agent**, not just the administration machine.
 
-Wire the process as [documented in the operations guide](../docs/operations.md): Fetch → Convert → write original bytes once → Confirm → save checkpoint. Run the writer/confirmation only when there is output. Do not advance the checkpoint before successful delivery confirmation.
+Wire the process as [documented in the operations guide](../docs/operations.md): Fetch → Convert → write original bytes once → Confirm. Pass Fetch's unchanged `ResultFile` and matching `FetchId` to Convert. Run the writer/confirmation only when there is output. Remove Frends KV read/write steps and manual checkpoint inputs: Convert commits no-file progress, and Confirm commits delivered progress atomically with delivery evidence.
 
 ### 7. Clear the temporary password
 
@@ -167,7 +168,7 @@ Remove-Item Env:PGPASSWORD -ErrorAction SilentlyContinue
 Remove-Variable login -ErrorAction SilentlyContinue
 ```
 
-Setup is complete when the schema exists, the correct source/history is activated, and both tasks use that source and connection. Test against an isolated destination before enabling production exports. The developer test suites below are **not** installation steps.
+Setup is complete when the schema exists, the correct source/history is activated, and all three tasks use that source and connection. Test against an isolated destination before enabling production exports. The developer test suites below are **not** installation steps.
 
 ## Optional: a separate restricted login
 
@@ -247,17 +248,33 @@ The dedicated Compose project exposes PostgreSQL only on `127.0.0.1:55432`, data
 
 Both `migrate.ps1` and `migrate.sh` ignore local `psqlrc`, do not prompt for passwords, stop on the first SQL error, take the **same** transaction-scoped advisory lock and apply the complete pending migration batch in one transaction. Concurrent runners serialize, including mixed PowerShell/Bash runners. Both use the same SQL files, migration names, and raw-byte SHA-256 history, so switching operating systems does not create a new migration history. PowerShell explicitly rejects BOM/CRLF migration files; restore the original release files instead of normalizing a stored checksum. On any failure, the transaction is rolled back. All mutating offline tools explicitly set `synchronous_commit=on` so a role's asynchronous default cannot weaken their commit acknowledgment. Every previously applied migration must still exist locally with the same SHA-256; missing files or checksum changes fail without applying anything. Keep applied files immutable; add a new numbered migration for future changes. Execute migrations during a coordinated deployment window: the migration advisory lock coordinates migration runners, not in-flight application requests. Do not change the schema while invoice conversions are in progress.
 
-The optional runtime grant script requires an existing role and rejects administrative roles/database or schema owners and their members. It grants schema usage; reads of the four tables; inserts of only runtime invoice/delivery columns; execution of the immutable identity-validation function; and updates of delivery status, time and evidence. It does not grant insertion of historical evidence or database-managed timestamps. `SELECT ... FOR UPDATE` requires `UPDATE` on at least one column, so the source grants permit `UPDATE(created_at)` solely to acquire row locks. A trigger rejects actual changes to that column. There is no source insert/activation grant, no invoice update/delete, no truncate and no schema creation privilege. Use a new dedicated role with no other inherited grants; the script does not audit every unrelated membership or revoke unrelated pre-existing privileges. Table triggers also reject removing or rewriting identities and moving a delivery back to `reserved`.
+The optional runtime grant script requires an existing role and rejects administrative roles/database or schema owners and their members. It grants schema usage; reads of the tracking tables; insertion of fetch receipts and allowed invoice/delivery columns; execution of immutable identity validation; and updates of delivery status/evidence and the committed source cursor. It does not grant insertion of historical evidence or database-managed timestamps. The source guard preserves identity and activation evidence, rejects backward progress, and prevents advancement while a reservation is unresolved. Existing `UPDATE(created_at)` permission supports row locks but its trigger rejects actual timestamp changes. There is no source insert/activation grant, invoice update/delete, truncate, or schema creation privilege. Use a new dedicated role with no other inherited grants; the script does not audit unrelated memberships or revoke unrelated pre-existing privileges. Table triggers also reject removing or rewriting receipts/identities and moving a delivery back to `reserved`.
+
+## Upgrading to database-owned progress
+
+The current task requires schema **`004_database_checkpoint`**. Existing invoice history and source identity remain in place; no registration, reseeding, or activation is repeated.
+
+1. Pause every Fetch, Convert, Confirm, and writer execution using the database. Back up the complete database and retain the corresponding old package for recovery.
+2. With the installation login, run `database/migrate.ps1 -PsqlPath $psql` on Windows, or `database/migrate.sh` on macOS/Linux, using existing connection settings. Verify all four migration versions and their checksums.
+3. For the same-login setup, no grant step is needed. For a separate restricted runtime login, rerun the updated `grant-runtime` helper to allow receipt insertion and guarded cursor updates.
+4. Install the matching task package. Give Fetch the same database/source as Convert and Confirm. Remove Fetch/Convert `LastLocalId` bindings and the Frends KV read/write steps. Bind Convert's `GraphQlResult` and `FetchId` to the matching Fetch results, without changing the JSON.
+5. Validate in isolation before resuming writers. Do not run old and new packages together: the old exact-schema check rejects the upgraded schema. A rollback requires a coordinated review, not deletion of migration history.
+
+Migration 004 adds `sources.last_local_id` with an initial value of **0**, immutable `fetch_batches` receipts, and a nullable receipt link on deliveries. It never infers a cursor from historical rows or old delivery maxima, because those do not prove a complete scan. The first Fetch traverses the entire available feed; recorded historical/delivered identities are still suppressed. Validated no-file batches advance the cursor immediately, while a new file advances it only on confirmation. Do not manually initialize the cursor from the old Frends KV value.
+
+The receipt stores only source/cursor identifiers, node count, a SHA-256 of exact UTF-8 response bytes, and creation time. It does not store the raw invoice response. Treat receipts and cursor state as permanent tracking records and include them in backups.
+
+Existing unresolved deliveries still block the source. With verified delivery evidence they can be confirmed using the updated operator tool. A legacy delivery without a receipt is confirmed without advancing the new cursor; the next complete scan verifies its invoice identities and establishes progress. Never set a cursor merely to get past an unresolved delivery.
 
 ## Upgrading an existing installation to invoice metadata
 
-This task requires schema `003_invoice_metadata`. Upgrading an already activated installation does **not** require another registration, history import, or activation.
+Migration `003_invoice_metadata` introduced the fields below. The current task also requires migration 004; use the [database-owned progress upgrade](#upgrading-to-database-owned-progress) for deployment. Upgrading an already activated installation does **not** require another registration, history import, or activation.
 
 1. Pause all conversions and confirmations using this database. Back up the database and retain the corresponding task package for recovery.
 2. With the same installation login, run the new release's `database/migrate.ps1 -PsqlPath $psql` on Windows, or `database/migrate.sh` on macOS/Linux, using your existing connection settings.
-3. Check `momentum_raindance.schema_migrations`: all three versions listed above must be present. Do not edit migration 001 or 002, reset the schema, or remove invoices.
+3. Check `momentum_raindance.schema_migrations`: the metadata migration and every earlier version must be present. Current deployments must also have 004. Do not edit applied migrations, reset the schema, or remove invoices.
 4. **Same login in Frends:** no grant step. **Separate restricted login:** rerun `grant-runtime` with that existing login, because the new columns require additional insert privileges.
-5. Deploy the matching task package, validate bindings, and resume only after an isolated test. The old task's exact-schema check rejects schema 003, so do not leave old and new task versions running together. A rollback requires a reviewed coordinated procedure, not deletion of migration history.
+5. Deploy the matching task package, validate bindings, and resume only after an isolated test. Exact-schema checks reject incompatible task/schema combinations, so do not leave old and new task versions running together. A rollback requires a reviewed coordinated procedure, not deletion of migration history.
 
 Migration 003 adds five nullable fields to `momentum_raindance.invoices`:
 
@@ -319,7 +336,7 @@ Keep permanent, protected backups and test restoration. After restoring an older
 database/operator.sh report momentum-nassjo-production
 ```
 
-Reports include historical/reserved/delivered counts plus each delivery's ID, filename, SHA-256, size and evidence. For a `reserved` delivery, first inspect the remote destination, archive and/or Raindance import evidence using the recorded filename. Verify the **actual raw file's** SHA-256, not a text re-encoding or JSON/base64 representation. Account for files already consumed or moved by the receiving system: absence at the original path is not proof of nondelivery.
+Reports include the committed source cursor, historical/reserved/delivered counts, fetch receipts, and each delivery's ID, filename, SHA-256, size and evidence. For a `reserved` delivery, first inspect the remote destination, archive and/or Raindance import evidence using the recorded filename. Verify the **actual raw file's** SHA-256, not a text re-encoding or JSON/base64 representation. Account for files already consumed or moved by the receiving system: absence at the original path is not proof of nondelivery.
 
 Only when there is positive evidence of successful delivery can an operator confirm the existing reservation:
 
@@ -329,7 +346,7 @@ database/operator.sh confirm-delivery momentum-nassjo-production \
   '64-hex-digit-sha256-from-the-verified-file' 'Remote archive/import receipt or incident evidence'
 ```
 
-This checks the source, delivery UUID, filename and SHA-256, then atomically records delivery evidence. An exact repeat is idempotent; conflicting evidence is rejected instead of overwriting the audit record. Confirmation never generates bytes or sends a file. The tool cannot inspect Raindance or validate an evidence reference's truth itself. If delivery cannot be proven, leave it reserved and investigate; do not clear the row. If nondelivery is conclusively established and a recovery transmission is needed, that requires a separately reviewed operational recovery procedure. It is deliberately not automated here.
+This checks the source, delivery UUID, filename and SHA-256, then atomically records delivery evidence and advances the cursor from the delivery's complete fetch receipt. A failure rolls both changes back. Legacy deliveries with no receipt are confirmed without advancing the cursor. An exact repeat is idempotent and cannot rewind progress; conflicting evidence is rejected instead of overwriting the audit record. Confirmation never generates bytes or sends a file. The tool cannot inspect Raindance or validate an evidence reference's truth itself. If delivery cannot be proven, leave it reserved and investigate; do not clear the row. If nondelivery is conclusively established and a recovery transmission is needed, that requires a separately reviewed operational recovery procedure. It is deliberately not automated here.
 
 ## Development verification
 

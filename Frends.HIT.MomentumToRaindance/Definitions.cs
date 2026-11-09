@@ -93,7 +93,8 @@ public class MomentumConnection
     public string Password { get; set; } = "";
 
     /// <summary>
-    /// Overall Fetch timeout in seconds for secret resolution, authentication and GraphQL retrieval.
+    /// Overall Fetch timeout in seconds for database state, secret resolution, authentication,
+    /// all GraphQL pages and recording the complete-fetch receipt.
     /// </summary>
     [DefaultValue(100)]
     [Range(1, 3600)]
@@ -191,13 +192,13 @@ public class MomentumApiConfiguration
 }
 
 /// <summary>
-/// Options for fetching and converting Momentum ledger note accountings.
+/// Manual options for diagnostic previews only. Production Fetch reads its cursor from PostgreSQL.
 /// </summary>
-public class FetchInput
+internal sealed class FetchInput
 {
     /// <summary>
-    /// Last successfully delivered Momentum local ID, supplied as an integer or a numeric string
-    /// from shared state. Defaults to zero; explicit null, invalid or out-of-range values fail.
+    /// Diagnostic lower bound, supplied as an integer or numeric string.
+    /// Defaults to zero; explicit null, invalid or out-of-range values fail.
     /// </summary>
     [DefaultValue(0)]
     [DisplayFormat(DataFormatString = "Expression")]
@@ -210,17 +211,22 @@ public class FetchInput
 public class ConvertInput
 {
     /// <summary>
-    /// Previously delivered local ID, supplied as an integer or a numeric string. Only newer nodes
-    /// are converted; defaults to zero for full conversion. Invalid values fail rather than resetting.
+    /// Durable batch receipt returned by Fetch with the same database and SourceSystem.
     /// </summary>
-    [DefaultValue(0)]
     [DisplayFormat(DataFormatString = "Expression")]
-    public object? LastLocalId { get; set; } = 0;
+    public string FetchId { get; set; } = "";
 
     /// <summary>
-    /// Raw Momentum GraphQL JSON response.
+    /// Exact, unchanged ResultFile returned by Fetch. Modified or partial JSON is rejected.
     /// </summary>
-    [DisplayFormat(DataFormatString = "Text")]
+    [DisplayFormat(DataFormatString = "Expression")]
+    public string GraphQlResult { get; set; } = "";
+}
+
+// Manual cursor filtering is available only to the diagnostic CLI and format tests.
+internal sealed class PreviewInput
+{
+    public object? LastLocalId { get; set; } = 0;
     public string GraphQlResult { get; set; } = "";
 }
 
@@ -229,8 +235,11 @@ public class ConvertInput
 /// </summary>
 public class FetchResult
 {
+    /// <summary>Durable PostgreSQL batch receipt. Pass with unchanged ResultFile to Convert.</summary>
+    public string FetchId { get; set; } = "";
+
     /// <summary>
-    /// Input checkpoint, unchanged. Fetching alone does not acknowledge invoice processing or delivery.
+    /// PostgreSQL checkpoint at fetch time, for diagnostics only. Fetch does not advance it.
     /// </summary>
     public int LastLocalId { get; set; }
 
@@ -258,11 +267,11 @@ public class FetchResult
     public FetchResult(bool success, string resultFile, string info)
         : this(success, resultFile, info, 0) { }
 
-    /// <summary>Creates a fetch result with the caller's unchanged checkpoint.</summary>
+    /// <summary>Creates a fetch result with its unchanged starting checkpoint.</summary>
     /// <param name="success">Whether the fetch succeeded.</param>
     /// <param name="resultFile">Prettified GraphQL JSON.</param>
     /// <param name="info">Operation summary.</param>
-    /// <param name="lastLocalId">Input checkpoint.</param>
+    /// <param name="lastLocalId">Database checkpoint at fetch time.</param>
     [JsonConstructor]
     public FetchResult(bool success, string resultFile, string info, int lastLocalId)
     {
@@ -294,9 +303,8 @@ public class ConversionResult
     public string Filename { get; set; } = "";
 
     /// <summary>
-    /// Highest handled local ID. Empty/stale/rounding-only input preserves the checkpoint;
-    /// skipping already recorded invoice identities can advance it without a new file.
-    /// For a new delivery persist only after Confirm Invoice Delivery succeeds.
+    /// Highest completely scanned local ID, for diagnostics only. No-file batches commit it
+    /// in PostgreSQL during conversion; new deliveries commit it only during confirmation.
     /// </summary>
     public int LastLocalId { get; set; }
 
@@ -336,7 +344,7 @@ public class ConversionResult
     /// <param name="nodeCount">Number of emitted invoices.</param>
     /// <param name="resultFile">Latin-1-encoded fixed-width bytes with CRLF endings.</param>
     /// <param name="info">Operation summary.</param>
-    /// <param name="lastLocalId">Checkpoint to store after delivery.</param>
+    /// <param name="lastLocalId">Handled checkpoint, committed by confirmation when output is reserved.</param>
     [JsonConstructor]
     public ConversionResult(bool success, int nodeCount, byte[] resultFile, string info, int lastLocalId)
     {

@@ -140,7 +140,7 @@ public sealed class InvoiceTrackingTests
         Assert.Equal(1, prepared.LastLocalId);
         Assert.Equal(0, prepared.SkippedInvoiceCount);
         Assert.NotEmpty(prepared.ResultFile);
-        Assert.Equal(Main.ConvertCore(new ConvertInput { GraphQlResult = Fixture.Envelope(original) },
+        Assert.Equal(Main.ConvertCore(new PreviewInput { GraphQlResult = Fixture.Envelope(original) },
             TestContext.Current.CancellationToken).ResultFile, prepared.ResultFile);
         Assert.True(Guid.TryParse(prepared.DeliveryId, out _));
         Assert.Matches("^300K24_[0-9]{8}_[0-9]{6}\\.txt$", prepared.Filename);
@@ -342,10 +342,11 @@ public sealed class InvoiceTrackingTests
     public async Task Cancelled_conversion_cannot_reserve_an_invoice()
     {
         await using var database = await TestDatabase.CreateAsync();
+        var input = await Fixture.RegisteredInputAsync(database.Connection, TestContext.Current.CancellationToken, Invoice());
         using var cancellation = new CancellationTokenSource();
         await cancellation.CancelAsync();
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => Main.ConvertGraphQlResult(
-            new ConvertInput { GraphQlResult = Fixture.Envelope(Invoice()) }, database.Connection, cancellation.Token));
+            input, database.Connection, cancellation.Token));
         Assert.Equal(0L, await database.CountAsync("invoices"));
         Assert.Equal(0L, await database.CountAsync("deliveries"));
     }
@@ -470,8 +471,11 @@ public sealed class InvoiceTrackingTests
         return node;
     }
 
-    private static Task<ConversionResult> ConvertAsync(InvoiceTrackingConnection database, params JObject[] invoices) =>
-        Main.ConvertGraphQlResult(new ConvertInput { GraphQlResult = Fixture.Envelope(invoices) }, database, TestContext.Current.CancellationToken);
+    private static async Task<ConversionResult> ConvertAsync(InvoiceTrackingConnection database, params JObject[] invoices)
+    {
+        var input = await Fixture.RegisteredInputAsync(database, TestContext.Current.CancellationToken, invoices);
+        return await Main.ConvertGraphQlResult(input, database, TestContext.Current.CancellationToken);
+    }
 
     private static DeliveryConfirmation Confirmation(ConversionResult prepared) => new()
     {

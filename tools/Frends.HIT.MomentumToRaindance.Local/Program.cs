@@ -52,9 +52,9 @@ try
 
     Console.WriteLine("DIAGNOSTIC PREVIEW — no duplicate protection. Do not deliver this output to Raindance.");
     Console.WriteLine($"Fetching Momentum nodes after local ID {options.LastLocalId}...");
-    var fetched = await Main.FetchLedgerNoteAccountings(
+    var fetched = await Main.FetchCoreAsync(
         connection,
-        new FetchInput { LastLocalId = options.LastLocalId });
+        new FetchInput { LastLocalId = options.LastLocalId }, CancellationToken.None);
 
     if (jsonOutputPath is not null)
     {
@@ -64,7 +64,7 @@ try
     }
 
     var converted = Main.ConvertCore(
-        new ConvertInput { GraphQlResult = fetched.ResultFile, LastLocalId = fetched.LastLocalId });
+        new PreviewInput { GraphQlResult = fetched.ResultFile, LastLocalId = fetched.LastLocalId });
 
     if (converted.NodeCount == 0)
     {

@@ -13,7 +13,7 @@ public sealed class CheckpointInputTests
     [InlineData(" 00123 ", 123)]
     [InlineData(123L, 123)]
     [InlineData("2147483647", int.MaxValue)]
-    public async Task Fetch_accepts_shared_state_strings_and_integers_before_parameter_initialization(object value, int expected)
+    public async Task Diagnostic_fetch_accepts_manual_checkpoint_strings_and_integers(object value, int expected)
     {
         // Reproduce a dynamically typed shared-state result assigned by generated Frends code.
         dynamic sharedStateValue = value;
@@ -55,7 +55,7 @@ public sealed class CheckpointInputTests
     [InlineData(true)]
     [InlineData(1.5)]
     [InlineData(1.0)]
-    public async Task Invalid_checkpoint_fails_in_both_tasks_without_network_or_reset(object? value)
+    public async Task Invalid_diagnostic_checkpoint_fails_without_network_or_reset(object? value)
     {
         var calls = 0;
         using var client = new HttpClient(new TransportTests.FakeHandler((_, _) =>
@@ -67,7 +67,7 @@ public sealed class CheckpointInputTests
         await Assert.ThrowsAsync<ArgumentException>(() => Main.FetchCoreAsync(TransportTests.Connection(),
             new FetchInput { LastLocalId = value }, TestContext.Current.CancellationToken, client));
         Assert.Equal(0, calls);
-        Assert.Throws<ArgumentException>(() => Main.ConvertCore(new ConvertInput
+        Assert.Throws<ArgumentException>(() => Main.ConvertCore(new PreviewInput
         {
             LastLocalId = value,
             GraphQlResult = Fixture.Envelope(Fixture.Node())
@@ -75,9 +75,9 @@ public sealed class CheckpointInputTests
     }
 
     [Fact]
-    public void Conversion_normalizes_shared_state_checkpoint_for_filtering_and_passthrough()
+    public void Diagnostic_conversion_normalizes_manual_checkpoint()
     {
-        var converted = Main.ConvertCore(new ConvertInput
+        var converted = Main.ConvertCore(new PreviewInput
         {
             LastLocalId = "5",
             GraphQlResult = Fixture.Envelope(Fixture.Node(5), Fixture.Node(6))
@@ -85,7 +85,7 @@ public sealed class CheckpointInputTests
         Assert.Equal(1, converted.NodeCount);
         Assert.Equal(6, converted.LastLocalId);
 
-        var noWork = Main.ConvertCore(new ConvertInput
+        var noWork = Main.ConvertCore(new PreviewInput
         {
             LastLocalId = "6",
             GraphQlResult = Fixture.Envelope(Fixture.Node(5), Fixture.Node(6))
@@ -102,7 +102,7 @@ public sealed class CheckpointInputTests
     public void Json_input_and_omitted_defaults_normalize_to_integer(string json, int expected)
     {
         var fetch = JsonConvert.DeserializeObject<FetchInput>(json)!;
-        var convert = JsonConvert.DeserializeObject<ConvertInput>(json)!;
+        var convert = JsonConvert.DeserializeObject<PreviewInput>(json)!;
         Assert.Equal(expected, Main.ParseCheckpoint(fetch.LastLocalId));
         Assert.Equal(expected, Main.ParseCheckpoint(convert.LastLocalId));
     }

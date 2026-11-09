@@ -141,6 +141,6 @@ public sealed class DeliveryResult
     public bool Success { get; set; }
     /// <summary>Number of invoices in this delivery.</summary>
     public int NodeCount { get; set; }
-    /// <summary>Checkpoint that can now be saved after successful delivery.</summary>
+    /// <summary>Current committed PostgreSQL checkpoint; no Frends KV write is needed.</summary>
     public int LastLocalId { get; set; }
 }

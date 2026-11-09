@@ -67,13 +67,15 @@ The current converter explicitly rejects any present non-`created` change type o
 
 The live `ledgerNoteAccountingsSync` signature accepts `lastLocalId`, `first`, `after`, `last`, `before`, `where`, and `order`. Its connection exposes `nodes`, `edges`, `pageInfo`, and `totalCount`. The complete signature and descriptions are in [the references](reference-query-root.md).
 
-The vendor says to store the highest returned local ID for subsequent fetches. For this delivery integration, “handled” additionally requires the local reservation, file write, and confirmation protocol: reading a row is not proof that Raindance received it.
+The vendor says to store the highest returned local ID for subsequent fetches. This integration stores that progress in PostgreSQL `sources.last_local_id`, not Frends KV. For a new invoice, “handled” additionally requires the reservation, file write, and confirmation protocol: reading a row is not proof that Raindance received it.
 
-For a future explicit page traversal, keep the same `lastLocalId` lower bound throughout the traversal and follow the returned opaque `endCursor` until `hasNextPage` is false. Do not decode, synthesize, or assume the cursor is a local ID. Reject a missing or repeated next cursor, invalid counts, malformed rows, errors, or unsupported duplicate event shapes. Do not mark a partially fetched batch complete.
+Fetch reads the database cursor and keeps that same `lastLocalId` lower bound throughout traversal, following the returned opaque `endCursor` through the `after` variable until `hasNextPage` is false. It does not decode, synthesize, or treat that cursor as a local ID. A missing/repeated continuation cursor, inconsistent total/count, invalid or non-increasing local ID, malformed metadata, or GraphQL error fails the complete fetch. No partially fetched batch is acknowledged.
 
 The limited live probe verified two pages of two items, not snapshot isolation under concurrent source changes, maximum/default page size, ordering guarantees for arbitrary `where`/`order`, or retention of the accounting feed. Those remain vendor-confirmation questions. Do not pass `first` without reading all pages, and do not advance the production checkpoint from a filtered debugging query.
 
-The current fetch task still makes only one request. The expanded query preserves `totalCount` and `pageInfo` in its raw JSON, but neither fetch nor conversion implements page traversal or a `hasNextPage` rejection guard. See the [current limitations and recommendations](query-assessment.md) before treating a response as a complete backlog.
+Fetch registers a durable receipt only after all pages succeed and the database cursor is still unchanged. Convert requires that receipt's `FetchId` and exact JSON, validates the entire batch, then checks current progress under the same source lock used for reservation. A stale or edited response fails. When every event is historical, delivered, or an intentional no-op, Convert can advance progress without output. With new invoices, Confirm advances it in the same transaction as delivery evidence. This preserves progress across Frends resets without treating a reservation as delivery. See [current behavior and remaining source-contract limits](query-assessment.md).
+
+Migration 004 starts existing sources at cursor zero, because old delivery maxima and historical `first_local_id` values do not prove complete feed coverage. The first complete scan suppresses recorded identities and establishes progress safely. Never seed a new cursor from an unverified KV value or reset source identities to bypass history.
 
 ## Accounting signs and period fields
 
